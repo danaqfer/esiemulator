@@ -1,4 +1,4 @@
-module esi-simulator
+module esi-emulator
 
 go 1.21
 

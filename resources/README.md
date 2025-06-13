@@ -1,6 +1,6 @@
 # ESI Documentation Resources
 
-This directory contains comprehensive documentation and specifications for Edge Side Includes (ESI) from various sources to support the development of the ESI simulator.
+This directory contains comprehensive documentation and specifications for Edge Side Includes (ESI) from various sources to support the development of the ESI emulator.
 
 ## Available Resources
 
@@ -45,7 +45,7 @@ Additional overview documentation from the edge delivery organization.
 
 ## ESI Feature Comparison
 
-| Feature | W3C Spec | Fastly | Akamai | Simulator Target |
+| Feature | W3C Spec | Fastly | Akamai | Emulator Target |
 |---------|----------|--------|---------|------------------|
 | `<esi:include>` | ✅ | ✅ | ✅ | ✅ |
 | `<esi:comment>` | ✅ | ✅ | ✅ | ✅ |
@@ -69,21 +69,21 @@ Based on available information, Akamai likely provides:
 - Extended debugging capabilities
 - Custom ESI functions
 
-### Simulator Requirements
-The ESI simulator should support:
+### Emulator Requirements
+The ESI emulator should support:
 1. **Fastly Mode:** Limited feature set for compatibility testing
 2. **Akamai Mode:** Full feature set including extensions
 3. **Strict W3C Mode:** Specification compliance testing
 4. **Development Mode:** Enhanced debugging and validation
 
-## Usage in Simulator Development
+## Usage in Emulator Development
 
 These resources will guide the implementation of:
 
 1. **Parser Module:** XML/HTML parsing of ESI tags
 2. **Expression Engine:** Variable substitution and expression evaluation
 3. **Request Handler:** HTTP request management for includes
-4. **Cache Simulator:** Fragment caching behavior
+4. **Cache Emulator:** Fragment caching behavior
 5. **Error Handler:** Exception and fallback processing
 6. **Validator:** ESI markup validation and debugging
 

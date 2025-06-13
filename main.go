@@ -9,19 +9,17 @@ import (
 	"strconv"
 	"syscall"
 
-	"esi-simulator/pkg/esi"
-	"esi-simulator/pkg/server"
+	"esi-emulator/pkg/esi"
+	"esi-emulator/pkg/server"
 )
 
 func main() {
-	// Command line flags
-	var (
-		mode    = flag.String("mode", getEnv("ESI_MODE", "akamai"), "ESI processing mode: fastly, akamai, w3c, development")
-		port    = flag.String("port", getEnv("PORT", "3000"), "Server port")
-		debug   = flag.Bool("debug", getEnv("DEBUG", "false") == "true", "Enable debug logging")
-		help    = flag.Bool("help", false, "Show help")
-		version = flag.Bool("version", false, "Show version")
-	)
+	// Parse command line flags
+	port := flag.String("port", getEnv("PORT", "3000"), "Port to run the server on")
+	mode := flag.String("mode", getEnv("ESI_MODE", "akamai"), "ESI mode: fastly, akamai, w3c, development")
+	debug := flag.Bool("debug", getEnv("DEBUG", "false") == "true", "Enable debug mode")
+	help := flag.Bool("help", false, "Show help information")
+	version := flag.Bool("version", false, "Show version")
 	flag.Parse()
 
 	if *help {
@@ -34,7 +32,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("🚀 ESI Simulator starting...")
+	fmt.Println("🚀 ESI Emulator starting...")
 
 	// Create ESI processor configuration
 	config := esi.Config{
@@ -85,13 +83,13 @@ func main() {
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 		<-c
-		fmt.Println("\n🛑 ESI Simulator shutting down...")
+		fmt.Println("\n🛑 ESI Emulator shutting down...")
 		srv.Shutdown()
 		os.Exit(0)
 	}()
 
 	// Start server
-	fmt.Printf("✅ ESI Simulator ready at http://localhost:%s\n", *port)
+	fmt.Printf("✅ ESI Emulator ready at http://localhost:%s\n", *port)
 	fmt.Printf("🎯 Mode: %s\n", *mode)
 
 	if err := srv.Start(); err != nil {
@@ -117,35 +115,31 @@ func getEnv(key, defaultValue string) string {
 }
 
 func showHelp() {
-	fmt.Println("ESI Simulator - A comprehensive Edge Side Include processor")
+	fmt.Println("ESI Emulator - A comprehensive Edge Side Include processor")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  esi-simulator [options]")
+	fmt.Println("  esi-emulator [options]")
 	fmt.Println()
 	fmt.Println("Options:")
-	fmt.Println("  -mode string")
-	fmt.Println("        ESI processing mode: fastly, akamai, w3c, development (default \"akamai\")")
-	fmt.Println("  -port string")
-	fmt.Println("        Server port (default \"3000\")")
-	fmt.Println("  -debug")
-	fmt.Println("        Enable debug logging")
-	fmt.Println("  -help")
-	fmt.Println("        Show this help")
-	fmt.Println("  -version")
-	fmt.Println("        Show version")
+	fmt.Println("  -port string     Port to run the server on (default: 3000)")
+	fmt.Println("  -mode string     ESI mode: fastly, akamai, w3c, development (default: akamai)")
+	fmt.Println("  -debug           Enable debug mode")
+	fmt.Println("  -help            Show this help message")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
-	fmt.Println("  ESI_MODE    ESI processing mode")
-	fmt.Println("  PORT        Server port")
-	fmt.Println("  DEBUG       Enable debug logging (true/false)")
+	fmt.Println("  PORT             Port to run the server on")
+	fmt.Println("  ESI_MODE         ESI mode: fastly, akamai, w3c, development")
+	fmt.Println("  DEBUG            Enable debug mode (true/false)")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  esi-simulator                           # Start with default settings")
-	fmt.Println("  esi-simulator -mode fastly -debug      # Fastly mode with debug")
-	fmt.Println("  ESI_MODE=w3c PORT=8080 esi-simulator   # W3C mode on port 8080")
+	fmt.Println("  esi-emulator                           # Start with default settings")
+	fmt.Println("  esi-emulator -mode fastly -debug      # Fastly mode with debug")
+	fmt.Println("  ESI_MODE=w3c PORT=8080 esi-emulator   # W3C mode on port 8080")
+	fmt.Println()
+	fmt.Println("ESI Emulator v0.1.0")
 }
 
 func showVersion() {
-	fmt.Println("ESI Simulator v0.1.0")
+	fmt.Println("ESI Emulator v0.1.0")
 	fmt.Println("A comprehensive Edge Side Include processor supporting Fastly and Akamai implementations")
 }

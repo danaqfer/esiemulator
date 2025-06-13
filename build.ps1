@@ -1,11 +1,11 @@
-# ESI Simulator PowerShell Build Script
+# ESI Emulator PowerShell Build Script
 param(
     [Parameter(Position=0)]
     [string]$Command = "help"
 )
 
 # Variables
-$BinaryName = "esi-simulator"
+$BinaryName = "esi-emulator"
 $BuildDir = "build"
 $MainFile = "main.go"
 $ExamplesFile = "cmd/examples/main.go"
@@ -14,7 +14,7 @@ $ExamplesFile = "cmd/examples/main.go"
 $env:GOWORK = "off"
 
 function Build {
-    Write-Host "🔨 Building ESI Simulator..." -ForegroundColor Green
+    Write-Host "🔨 Building ESI Emulator..." -ForegroundColor Green
     if (-not (Test-Path $BuildDir)) {
         New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
     }
@@ -27,22 +27,22 @@ function Build {
 }
 
 function Run {
-    Write-Host "🚀 Running ESI Simulator in development mode..." -ForegroundColor Green
+    Write-Host "🚀 Running ESI Emulator in development mode..." -ForegroundColor Green
     go run $MainFile -mode development -debug
 }
 
 function RunFastly {
-    Write-Host "🚀 Running ESI Simulator in Fastly mode..." -ForegroundColor Green
+    Write-Host "🚀 Running ESI Emulator in Fastly mode..." -ForegroundColor Green
     go run $MainFile -mode fastly -debug
 }
 
 function RunAkamai {
-    Write-Host "🚀 Running ESI Simulator in Akamai mode..." -ForegroundColor Green
+    Write-Host "🚀 Running ESI Emulator in Akamai mode..." -ForegroundColor Green
     go run $MainFile -mode akamai -debug
 }
 
 function RunW3C {
-    Write-Host "🚀 Running ESI Simulator in W3C mode..." -ForegroundColor Green
+    Write-Host "🚀 Running ESI Emulator in W3C mode..." -ForegroundColor Green
     go run $MainFile -mode w3c -debug
 }
 
@@ -96,7 +96,7 @@ function RunBinary {
 }
 
 function ShowHelp {
-    Write-Host "ESI Simulator - Available Commands:" -ForegroundColor Yellow
+    Write-Host "ESI Emulator - Available Commands:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  build          Build the application" -ForegroundColor White
     Write-Host "  run            Run in development mode" -ForegroundColor White

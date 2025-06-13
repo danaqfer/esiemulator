@@ -5,11 +5,11 @@ import (
 	"log"
 	"time"
 
-	"esi-simulator/pkg/esi"
+	"esi-emulator/pkg/esi"
 )
 
 func main() {
-	fmt.Println("🚀 ESI Simulator - Go Examples")
+	fmt.Println("🚀 ESI Emulator - Go Examples")
 
 	// Run different examples
 	if err := basicExample(); err != nil {
@@ -91,7 +91,7 @@ func basicExample() error {
 		context := esi.ProcessContext{
 			BaseURL: "https://example.com",
 			Headers: map[string]string{
-				"User-Agent": "ESI-Simulator-Go/1.0",
+				"User-Agent": "ESI-Emulator-Go/1.0",
 				"Cookie":     "user_type=premium; session_id=abc123",
 			},
 			Cookies: map[string]string{
@@ -197,7 +197,7 @@ func advancedExample() error {
 	context := esi.ProcessContext{
 		BaseURL: "https://example.com",
 		Headers: map[string]string{
-			"User-Agent": "Mozilla/5.0 (ESI-Simulator-Go)",
+			"User-Agent": "Mozilla/5.0 (ESI-Emulator-Go)",
 			"Cookie":     "user_type=premium; session_id=xyz789",
 			"Host":       "www.example.com",
 		},
@@ -250,7 +250,7 @@ func performanceExample() error {
 	context := esi.ProcessContext{
 		BaseURL: "https://example.com",
 		Headers: map[string]string{
-			"User-Agent": "ESI-Simulator-Performance-Test",
+			"User-Agent": "ESI-Emulator-Performance-Test",
 		},
 		Depth: 0,
 	}
@@ -539,7 +539,7 @@ func performanceComparison() error {
 	context := esi.ProcessContext{
 		BaseURL: "https://example.com",
 		Headers: map[string]string{
-			"User-Agent": "ESI-Performance-Test/1.0",
+			"User-Agent": "ESI-Emulator-Performance-Test/1.0",
 			"Cookie":     "user=test_user",
 			"Host":       "www.example.com",
 		},

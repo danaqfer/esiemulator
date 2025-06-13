@@ -4,7 +4,7 @@ A comprehensive Edge Side Include (ESI) emulator written in Go that supports bot
 
 ## Overview
 
-Edge Side Includes (ESI) is a markup language that allows content assembly at the edge of the network, enabling dynamic content composition while maintaining high performance through selective caching. This simulator aims to provide a complete implementation that supports:
+Edge Side Includes (ESI) is a markup language that allows content assembly at the edge of the network, enabling dynamic content composition while maintaining high performance through selective caching. This emulator aims to provide a complete implementation that supports:
 
 ### Fastly ESI Support (Limited)
 - `<esi:include>` - Basic content inclusion
@@ -35,7 +35,7 @@ All ESI specifications and implementation guides are stored in the `resources/` 
 
 ## Architecture
 
-The simulator is built in Go and follows standard Go project structure:
+The emulator is built in Go and follows standard Go project structure:
 
 - **Core ESI Processor** (`pkg/esi/`): Handles parsing and processing of ESI tags with comprehensive tests
 - **HTTP Server** (`pkg/server/`): Provides REST API for testing and integration
@@ -214,7 +214,7 @@ Akamai mode supports additional attributes on `<esi:include>`:
    
    **Option C: Direct Go build:**
    ```bash
-   go build -o esi-simulator
+   go build -o esi-emulator
    ```
 
    > **Note:** On Windows, you may need to set `$env:GOWORK="off"` if you encounter Go workspace conflicts.
@@ -291,7 +291,7 @@ Akamai mode supports additional attributes on `<esi:include>`:
    ```bash
    go run main.go -help
    # or after building:
-   ./esi-simulator -help
+   ./esi-emulator -help
    ```
 
 5. **Available build script commands:**

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"esi-simulator/pkg/esi"
+	"esi-emulator/pkg/esi"
 
 	"github.com/gin-gonic/gin"
 )
@@ -119,7 +119,7 @@ func (s *Server) handleRoot(c *gin.Context) {
 	features := s.processor.GetFeatures()
 
 	c.JSON(http.StatusOK, gin.H{
-		"name":     "ESI Simulator",
+		"name":     "ESI Emulator",
 		"version":  "0.1.0",
 		"mode":     s.config.Mode,
 		"features": features,
@@ -532,7 +532,7 @@ func (s *Server) getTestFragments() map[string]string {
 	return map[string]string{
 		"header":            "<header><h2>Dynamic Header Content</h2><nav>Navigation here</nav></header>",
 		"content":           fmt.Sprintf("<div><p>This is dynamically included content.</p><p>Generated at: %s</p></div>", currentTime),
-		"footer":            "<footer><p>&copy; 2024 ESI Simulator. All rights reserved.</p></footer>",
+		"footer":            "<footer><p>&copy; 2024 ESI Emulator. All rights reserved.</p></footer>",
 		"shopping-cart":     "<div class=\"cart\">Cart: 3 items ($45.99) <a href=\"/cart\">View Cart</a></div>",
 		"user-menu":         "<div class=\"user-menu\"><a href=\"/login\">Login</a> | <a href=\"/register\">Register</a></div>",
 		"featured-products": "<div class=\"products\"><div class=\"product\">Product 1 - $19.99</div><div class=\"product\">Product 2 - $25.99</div></div>",
