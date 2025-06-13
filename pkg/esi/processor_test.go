@@ -197,31 +197,119 @@ func TestProcessor_ProcessCommentBlocks(t *testing.T) {
 	tests := []struct {
 		name             string
 		input            string
+		context          ProcessContext
 		shouldNotContain []string
 		shouldContain    []string
 	}{
 		{
 			name:             "convert comment blocks to esi elements",
 			input:            `<html><body><!--esi <remove>test</remove> --><p>Content</p></body></html>`,
+			context:          ProcessContext{},
 			shouldNotContain: []string{"<!--esi", "test"},
 			shouldContain:    []string{"<p>Content</p>"},
 		},
 		{
 			name:             "multiple comment blocks",
 			input:            `<html><body><!--esi <remove>test1</remove> --><!--esi <comment text="test2"></comment> --><p>Content</p></body></html>`,
+			context:          ProcessContext{},
 			shouldNotContain: []string{"<!--esi", "test1", "test2"},
+			shouldContain:    []string{"<p>Content</p>"},
+		},
+		{
+			name:  "comment block with variables",
+			input: `<html><body><!--esi <esi:vars>Host: $(HTTP_HOST)</esi:vars> --><p>Content</p></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "example.com",
+				},
+			},
+			shouldNotContain: []string{"<!--esi", "$(HTTP_HOST)"},
+			shouldContain:    []string{"Host: example.com", "<p>Content</p>"},
+		},
+		{
+			name:  "comment block with conditional logic",
+			input: `<html><body><!--esi <esi:choose><esi:when test="$(HTTP_HOST) == 'example.com'"><p>Correct host</p></esi:when><esi:otherwise><p>Wrong host</p></esi:otherwise></esi:choose> --><p>Content</p></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "example.com",
+				},
+			},
+			shouldNotContain: []string{"<!--esi", "<esi:choose>", "<esi:when>", "<esi:otherwise>", "Wrong host"},
+			shouldContain:    []string{"<p>Correct host</p>", "<p>Content</p>"},
+		},
+		{
+			name:             "comment block with error handling",
+			input:            `<html><body><!--esi <esi:try><esi:attempt><p>Success</p></esi:attempt><esi:except><p>Error</p></esi:except></esi:try> --><p>Content</p></body></html>`,
+			context:          ProcessContext{},
+			shouldNotContain: []string{"<!--esi", "<esi:try>", "<esi:attempt>", "<esi:except>", "Error"},
+			shouldContain:    []string{"<p>Success</p>", "<p>Content</p>"},
+		},
+		{
+			name: "comment block with complex whitespace",
+			input: `<html><body><!--esi
+				<esi:vars>
+					<p>User: $(HTTP_USER_AGENT)</p>
+				</esi:vars>
+			--><p>Content</p></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"User-Agent": "Mozilla/5.0",
+				},
+			},
+			shouldNotContain: []string{"<!--esi", "$(HTTP_USER_AGENT)"},
+			shouldContain:    []string{"User: Mozilla/5.0", "<p>Content</p>"},
+		},
+		{
+			name:             "comment block with nested includes",
+			input:            `<html><body><!--esi <esi:include src="/fragments/header" /> --><p>Content</p></body></html>`,
+			context:          ProcessContext{},
+			shouldNotContain: []string{"<!--esi", "<esi:include>"},
+			shouldContain:    []string{"<p>Content</p>"},
+		},
+		{
+			name:  "comment block with Akamai extensions",
+			input: `<html><body><!--esi <esi:vars>Host: $(HTTP_HOST)</esi:vars> --><p>Content</p></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "test_value",
+				},
+			},
+			shouldNotContain: []string{"<!--esi", "$(HTTP_HOST)"},
+			shouldContain:    []string{"Host: test_value", "<p>Content</p>"},
+		},
+		{
+			name:  "comment block with multiple ESI elements",
+			input: `<html><body><!--esi <esi:vars>Host: $(HTTP_HOST)</esi:vars><esi:choose><esi:when test="$(HTTP_COOKIE{logged_in})"><p>Welcome back!</p></esi:when></esi:choose> --><p>Content</p></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "example.com",
+				},
+				Cookies: map[string]string{
+					"logged_in": "true",
+				},
+			},
+			shouldNotContain: []string{"<!--esi", "$(HTTP_HOST)", "$(HTTP_COOKIE{logged_in})"},
+			shouldContain:    []string{"Host: example.com", "<p>Welcome back!</p>", "<p>Content</p>"},
+		},
+		{
+			name:             "malformed comment block",
+			input:            `<html><body><!--esi <p>Unclosed comment --><p>Content</p></body></html>`,
+			context:          ProcessContext{},
+			shouldNotContain: []string{"<!--esi"},
+			shouldContain:    []string{"<p>Content</p>"},
+		},
+		{
+			name:             "empty comment block",
+			input:            `<html><body><!--esi --><p>Content</p></body></html>`,
+			context:          ProcessContext{},
+			shouldNotContain: []string{"<!--esi"},
 			shouldContain:    []string{"<p>Content</p>"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			context := ProcessContext{
-				Headers: make(map[string]string),
-				Cookies: make(map[string]string),
-			}
-
-			result, err := processor.Process(tt.input, context)
+			result, err := processor.Process(tt.input, tt.context)
 			require.NoError(t, err)
 
 			for _, shouldNotContain := range tt.shouldNotContain {

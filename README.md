@@ -312,6 +312,99 @@ The emulator provides robust error handling through the `<esi:try>`, `<esi:attem
 3. **Variable Safety**: Wrap variable processing in try blocks when using complex expressions
 4. **Include Protection**: Protect external includes that might fail
 
+## ESI Comment Block Processing (`<!--esi ... -->`)
+
+The emulator provides comprehensive support for ESI comment blocks, allowing ESI elements to be embedded within HTML comments for graceful degradation:
+
+### Basic Comment Block Usage
+
+```xml
+<!--esi <esi:vars>Host: $(HTTP_HOST)</esi:vars> -->
+<p>Content</p>
+```
+
+### Comment Blocks with Variables
+
+```xml
+<!--esi 
+    <esi:vars>
+        <p>User Agent: $(HTTP_USER_AGENT)</p>
+        <p>Referer: $(HTTP_REFERER)</p>
+    </esi:vars>
+-->
+<p>Main content</p>
+```
+
+### Comment Blocks with Conditional Logic
+
+```xml
+<!--esi 
+    <esi:choose>
+        <esi:when test="$(HTTP_HOST) == 'example.com'">
+            <p>Welcome to Example.com!</p>
+        </esi:when>
+        <esi:otherwise>
+            <p>Welcome to our site!</p>
+        </esi:otherwise>
+    </esi:choose>
+-->
+<p>Content</p>
+```
+
+### Comment Blocks with Error Handling
+
+```xml
+<!--esi 
+    <esi:try>
+        <esi:attempt>
+            <esi:include src="/fragments/header" />
+        </esi:attempt>
+        <esi:except>
+            <p>Header could not be loaded</p>
+        </esi:except>
+    </esi:try>
+-->
+<p>Content</p>
+```
+
+### Complex Comment Blocks with Multiple Elements
+
+```xml
+<!--esi 
+    <esi:vars>Host: $(HTTP_HOST)</esi:vars>
+    <esi:choose>
+        <esi:when test="$(HTTP_COOKIE{logged_in})">
+            <p>Welcome back, user!</p>
+        </esi:when>
+    </esi:choose>
+    <esi:try>
+        <esi:attempt>
+            <esi:include src="/fragments/user-panel" />
+        </esi:attempt>
+        <esi:except>
+            <p>User panel unavailable</p>
+        </esi:except>
+    </esi:try>
+-->
+<p>Main content</p>
+```
+
+### Comment Block Best Practices
+
+1. **Graceful Degradation**: Comment blocks allow ESI content to be hidden from non-ESI processors
+2. **Complex Nesting**: Support for nested ESI elements within comment blocks
+3. **Whitespace Handling**: Robust handling of various whitespace patterns
+4. **Error Recovery**: Empty or malformed comment blocks are safely removed
+5. **Full ESI Support**: All ESI elements work within comment blocks including Akamai extensions
+
+### Comment Block Processing Features
+
+- **Enhanced Regex**: Robust pattern matching with `[\s\S]*?` for multiline content
+- **Whitespace Flexibility**: Handles various whitespace patterns and indentation
+- **Nested Processing**: Full ESI processing pipeline applied to comment content
+- **Error Handling**: Graceful handling of processing errors within comments
+- **Debug Support**: Comprehensive debug logging for comment block processing
+
 ## ESI Variable Substitution (`<esi:vars>`)
 
 The emulator provides comprehensive ESI variable substitution support through the `<esi:vars>` element:
@@ -590,10 +683,11 @@ This is a **comprehensive ESI implementation** with full test coverage and produ
 - **ESI Variable Substitution**: Full `<esi:vars>` implementation with default values, keys, and complex variable patterns
 - **Conditional Processing**: Complete `<esi:choose>/<esi:when>/<esi:otherwise>` implementation with expression evaluation
 - **Error Handling Blocks**: Full `<esi:try>/<esi:attempt>/<esi:except>` implementation for graceful error handling
-- **Comprehensive Test Suite**: 130+ passing tests covering all functionality
+- **Comment Block Processing**: Complete `<!--esi ... -->` implementation with full ESI element support
+- **Comprehensive Test Suite**: 140+ passing tests covering all functionality
 
 ### 🚧 Placeholder Implementations
-- <!--esi ...--> comment block processing (basic implementation)
+- No placeholder implementations remaining - all core ESI functionality is complete!
 
 ### 📋 Future Enhancements
 - **Streaming ESI Processing**: Stream-based processing for large documents

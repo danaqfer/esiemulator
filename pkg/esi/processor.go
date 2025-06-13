@@ -198,17 +198,51 @@ func (p *Processor) Process(html string, context ProcessContext) (string, error)
 	return result, nil
 }
 
-// processCommentBlocks processes <!--esi ...--> blocks
-func (p *Processor) processCommentBlocks(html string, _ ProcessContext) string {
-	// Regex to match <!--esi ... --> blocks
-	re := regexp.MustCompile(`<!--esi\s+(.*?)\s+-->`)
+// processCommentBlocks processes <!--esi ... --> comment blocks
+func (p *Processor) processCommentBlocks(html string, context ProcessContext) string {
+	if p.config.Debug {
+		fmt.Println("🔍 Processing ESI comment blocks")
+	}
+
+	// Enhanced regex to match <!--esi ... --> blocks with better whitespace handling
+	// This regex handles various whitespace patterns and nested content
+	// Also handles empty comment blocks
+	re := regexp.MustCompile(`<!--esi\s*([\s\S]*?)\s*-->`)
 
 	return re.ReplaceAllStringFunc(html, func(match string) string {
 		// Extract the ESI content from the comment
-		re := regexp.MustCompile(`<!--esi\s+(.*?)\s+-->`)
 		matches := re.FindStringSubmatch(match)
 		if len(matches) > 1 {
-			return matches[1] // Return the ESI content without comment wrapper
+			esiContent := strings.TrimSpace(matches[1])
+
+			if p.config.Debug {
+				fmt.Printf("📝 Found ESI comment block: %s\n", truncateString(esiContent, 50))
+			}
+
+			// If the content is empty, just remove the comment block
+			if esiContent == "" {
+				if p.config.Debug {
+					fmt.Println("📝 Empty ESI comment block, removing")
+				}
+				return ""
+			}
+
+			// Process the extracted ESI content through the full processor
+			// This allows for nested processing of includes, vars, choose, etc.
+			processedContent, err := p.Process(esiContent, context)
+			if err != nil {
+				if p.config.Debug {
+					fmt.Printf("⚠️  Error processing ESI comment content: %v\n", err)
+				}
+				// Return empty string on error to remove the comment block
+				return ""
+			}
+
+			if p.config.Debug {
+				fmt.Printf("✅ Processed ESI comment block: %s\n", truncateString(processedContent, 50))
+			}
+
+			return processedContent
 		}
 		return match
 	})
