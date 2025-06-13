@@ -191,6 +191,122 @@ Akamai mode supports additional attributes on `<esi:include>`:
              onerror="continue" />
 ```
 
+## ESI Variable Substitution (`<esi:vars>`)
+
+The emulator provides comprehensive ESI variable substitution support through the `<esi:vars>` element:
+
+### Basic Variable Substitution
+
+```xml
+<esi:vars>
+    <p>Host: $(HTTP_HOST)</p>
+    <p>User Agent: $(HTTP_USER_AGENT)</p>
+    <p>Referer: $(HTTP_REFERER)</p>
+</esi:vars>
+```
+
+### Variable with Keys
+
+Access specific values from complex variables:
+
+```xml
+<esi:vars>
+    <!-- Cookie with specific key -->
+    <p>Username: $(HTTP_COOKIE{username})</p>
+    
+    <!-- User Agent components -->
+    <p>Browser: $(HTTP_USER_AGENT{browser})</p>
+    <p>Operating System: $(HTTP_USER_AGENT{os})</p>
+    
+    <!-- Query string parameters -->
+    <p>Product ID: $(QUERY_STRING{id})</p>
+    
+    <!-- Accept Language check -->
+    <p>Supports English: $(HTTP_ACCEPT_LANGUAGE{en})</p>
+</esi:vars>
+```
+
+### Default Values
+
+Provide fallback values when variables are missing:
+
+```xml
+<esi:vars>
+    <!-- Simple default -->
+    <p>User: $(HTTP_COOKIE{username}|guest)</p>
+    
+    <!-- Quoted default values -->
+    <p>Name: $(HTTP_COOKIE{name}|'Anonymous User')</p>
+    
+    <!-- Multiple variables with defaults -->
+    <p>Welcome $(HTTP_COOKIE{name}|'Guest') from $(HTTP_HOST|'unknown')</p>
+</esi:vars>
+```
+
+### Multiple Variable Blocks
+
+Use multiple `<esi:vars>` blocks in the same document:
+
+```xml
+<html>
+<body>
+    <esi:vars>
+        <header>Welcome to $(HTTP_HOST)</header>
+    </esi:vars>
+    
+    <main>
+        <esi:vars>
+            <p>Request Method: $(REQUEST_METHOD)</p>
+            <p>Request URI: $(REQUEST_URI)</p>
+        </esi:vars>
+    </main>
+</body>
+</html>
+```
+
+### Integration with Akamai Extensions
+
+Combine with `<esi:assign>` for custom variables:
+
+```xml
+<esi:assign name="site_name" value="My Awesome Site" />
+<esi:assign name="user_level" value="$(HTTP_COOKIE{level}|basic)" />
+
+<esi:vars>
+    <h1>Welcome to $(site_name)</h1>
+    <p>Your level: $(user_level)</p>
+    <p>Current time: $(TIME)</p>
+</esi:vars>
+```
+
+### Supported Variables
+
+| Variable | Description | Key Support | Default Support |
+|----------|-------------|-------------|-----------------|
+| `HTTP_HOST` | Request host header | ❌ | ✅ |
+| `HTTP_USER_AGENT` | User agent string | ✅ (browser, os, version) | ✅ |
+| `HTTP_COOKIE` | Cookie header | ✅ (cookie name) | ✅ |
+| `HTTP_REFERER` | Referer header | ❌ | ✅ |
+| `HTTP_ACCEPT_LANGUAGE` | Accept-Language header | ✅ (language code) | ✅ |
+| `QUERY_STRING` | Query string | ✅ (parameter name) | ✅ |
+| `REQUEST_METHOD` | HTTP method | ❌ | ✅ |
+| `REQUEST_URI` | Request URI | ❌ | ✅ |
+| `GEO_COUNTRY_CODE` | Country code (Akamai) | ❌ | ✅ |
+| `GEO_COUNTRY_NAME` | Country name (Akamai) | ❌ | ✅ |
+| `GEO_REGION` | Region (Akamai) | ❌ | ✅ |
+| `GEO_CITY` | City (Akamai) | ❌ | ✅ |
+| `CLIENT_IP` | Client IP address (Akamai) | ❌ | ✅ |
+
+### Variable Patterns
+
+The emulator supports these variable patterns:
+
+- **Simple**: `$(VARIABLE_NAME)`
+- **With Key**: `$(VARIABLE_NAME{key})`
+- **With Default**: `$(VARIABLE_NAME|default_value)`
+- **With Key and Default**: `$(VARIABLE_NAME{key}|default_value)`
+- **Quoted Defaults**: `$(VARIABLE_NAME|'quoted default')`
+
 ## Getting Started
 
 ### Installation
@@ -350,12 +466,12 @@ This is a **comprehensive ESI implementation** with full test coverage and produ
 - **Akamai Extensions**: Full implementation of `<esi:assign>`, `<esi:eval>`, `<esi:function>`, `<esi:dictionary>`, `<esi:debug>`
 - **Variable System**: Complete ESI variable expansion with HTTP headers, geo data, and custom variables
 - **Expression Engine**: Boolean expression evaluation for conditionals
+- **ESI Variable Substitution**: Full `<esi:vars>` implementation with default values, keys, and complex variable patterns
 - **Comprehensive Test Suite**: 124 passing tests covering all functionality
 
 ### 🚧 Placeholder Implementations
 - ESI choose/when/otherwise blocks (basic structure in place)
 - ESI try/attempt/except error handling (basic structure in place)  
-- ESI vars variable substitution (basic structure in place)
 - <!--esi ...--> comment block processing (basic implementation)
 
 ### 📋 Future Enhancements
