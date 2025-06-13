@@ -796,3 +796,285 @@ func TestProcessor_ExpandESIVariables(t *testing.T) {
 		})
 	}
 }
+
+func TestProcessor_ProcessChoose(t *testing.T) {
+	tests := []struct {
+		name             string
+		mode             string
+		html             string
+		context          ProcessContext
+		shouldContain    []string
+		shouldNotContain []string
+	}{
+		{
+			name: "simple condition true",
+			mode: "w3c",
+			html: `<html><body><esi:choose><esi:when test="$(HTTP_HOST) == 'example.com'"><p>Correct host</p></esi:when><esi:otherwise><p>Wrong host</p></esi:otherwise></esi:choose></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "example.com",
+				},
+			},
+			shouldContain:    []string{"<p>Correct host</p>"},
+			shouldNotContain: []string{"<p>Wrong host</p>", "<esi:choose>", "<esi:when>", "<esi:otherwise>"},
+		},
+		{
+			name: "simple condition false",
+			mode: "w3c",
+			html: `<html><body><esi:choose><esi:when test="$(HTTP_HOST) == 'example.com'"><p>Correct host</p></esi:when><esi:otherwise><p>Wrong host</p></esi:otherwise></esi:choose></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "other.com",
+				},
+			},
+			shouldContain:    []string{"<p>Wrong host</p>"},
+			shouldNotContain: []string{"<p>Correct host</p>", "<esi:choose>", "<esi:when>", "<esi:otherwise>"},
+		},
+		{
+			name: "multiple when conditions",
+			mode: "w3c",
+			html: `<html><body><esi:choose><esi:when test="$(HTTP_HOST) == 'example.com'"><p>Example</p></esi:when><esi:when test="$(HTTP_HOST) == 'test.com'"><p>Test</p></esi:when><esi:otherwise><p>Other</p></esi:otherwise></esi:choose></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "test.com",
+				},
+			},
+			shouldContain:    []string{"<p>Test</p>"},
+			shouldNotContain: []string{"<p>Example</p>", "<p>Other</p>", "<esi:choose>", "<esi:when>", "<esi:otherwise>"},
+		},
+		{
+			name: "inequality condition",
+			mode: "w3c",
+			html: `<html><body><esi:choose><esi:when test="$(HTTP_HOST) != 'example.com'"><p>Not example</p></esi:when><esi:otherwise><p>Is example</p></esi:otherwise></esi:choose></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "other.com",
+				},
+			},
+			shouldContain:    []string{"<p>Not example</p>"},
+			shouldNotContain: []string{"<p>Is example</p>", "<esi:choose>", "<esi:when>", "<esi:otherwise>"},
+		},
+		{
+			name: "boolean condition true",
+			mode: "w3c",
+			html: `<html><body><esi:choose><esi:when test="$(HTTP_COOKIE{logged_in})"><p>Logged in</p></esi:when><esi:otherwise><p>Not logged in</p></esi:otherwise></esi:choose></body></html>`,
+			context: ProcessContext{
+				Cookies: map[string]string{
+					"logged_in": "true",
+				},
+			},
+			shouldContain:    []string{"<p>Logged in</p>"},
+			shouldNotContain: []string{"<p>Not logged in</p>", "<esi:choose>", "<esi:when>", "<esi:otherwise>"},
+		},
+		{
+			name: "boolean condition false",
+			mode: "w3c",
+			html: `<html><body><esi:choose><esi:when test="$(HTTP_COOKIE{logged_in})"><p>Logged in</p></esi:when><esi:otherwise><p>Not logged in</p></esi:otherwise></esi:choose></body></html>`,
+			context: ProcessContext{
+				Cookies: map[string]string{},
+			},
+			shouldContain:    []string{"<p>Not logged in</p>"},
+			shouldNotContain: []string{"<p>Logged in</p>", "<esi:choose>", "<esi:when>", "<esi:otherwise>"},
+		},
+		{
+			name: "no otherwise block",
+			mode: "w3c",
+			html: `<html><body><esi:choose><esi:when test="$(HTTP_HOST) == 'example.com'"><p>Correct host</p></esi:when></esi:choose></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "other.com",
+				},
+			},
+			shouldNotContain: []string{"<p>Correct host</p>", "<esi:choose>", "<esi:when>"},
+		},
+		{
+			name:             "missing test attribute",
+			mode:             "w3c",
+			html:             `<html><body><esi:choose><esi:when><p>No test</p></esi:when><esi:otherwise><p>Fallback</p></esi:otherwise></esi:choose></body></html>`,
+			context:          ProcessContext{},
+			shouldContain:    []string{"<p>Fallback</p>"},
+			shouldNotContain: []string{"<p>No test</p>", "<esi:choose>", "<esi:when>", "<esi:otherwise>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := NewProcessor(Config{
+				Mode:        tt.mode,
+				Debug:       false,
+				MaxIncludes: 10,
+				Cache: CacheConfig{
+					Enabled: false,
+				},
+			})
+
+			result, err := processor.Process(tt.html, tt.context)
+			assert.NoError(t, err)
+
+			for _, shouldContain := range tt.shouldContain {
+				assert.Contains(t, result, shouldContain, "Result should contain: %s", shouldContain)
+			}
+
+			for _, shouldNotContain := range tt.shouldNotContain {
+				assert.NotContains(t, result, shouldNotContain, "Result should not contain: %s", shouldNotContain)
+			}
+		})
+	}
+}
+
+func TestProcessor_ProcessTry(t *testing.T) {
+	tests := []struct {
+		name             string
+		mode             string
+		html             string
+		context          ProcessContext
+		shouldContain    []string
+		shouldNotContain []string
+	}{
+		{
+			name:             "successful attempt",
+			mode:             "w3c",
+			html:             `<html><body><esi:try><esi:attempt><p>Success content</p></esi:attempt><esi:except><p>Error content</p></esi:except></esi:try></body></html>`,
+			context:          ProcessContext{},
+			shouldContain:    []string{"<p>Success content</p>"},
+			shouldNotContain: []string{"<p>Error content</p>", "<esi:try>", "<esi:attempt>", "<esi:except>"},
+		},
+		{
+			name: "attempt with variables",
+			mode: "w3c",
+			html: `<html><body><esi:try><esi:attempt><esi:vars><p>Host: $(HTTP_HOST)</p></esi:vars></esi:attempt><esi:except><p>Error</p></esi:except></esi:try></body></html>`,
+			context: ProcessContext{
+				Headers: map[string]string{
+					"Host": "example.com",
+				},
+			},
+			shouldContain:    []string{"<p>Host: example.com</p>"},
+			shouldNotContain: []string{"<p>Error</p>", "<esi:try>", "<esi:attempt>", "<esi:except>", "<esi:vars>"},
+		},
+		{
+			name:             "no except block",
+			mode:             "w3c",
+			html:             `<html><body><esi:try><esi:attempt><p>Content</p></esi:attempt></esi:try></body></html>`,
+			context:          ProcessContext{},
+			shouldContain:    []string{"<p>Content</p>"},
+			shouldNotContain: []string{"<esi:try>", "<esi:attempt>"},
+		},
+		{
+			name:             "no attempt block",
+			mode:             "w3c",
+			html:             `<html><body><esi:try><esi:except><p>Error</p></esi:except></esi:try></body></html>`,
+			context:          ProcessContext{},
+			shouldNotContain: []string{"<p>Error</p>", "<esi:try>", "<esi:except>"},
+		},
+		{
+			name:             "nested try blocks",
+			mode:             "w3c",
+			html:             `<html><body><esi:try><esi:attempt><esi:try><esi:attempt><p>Nested success</p></esi:attempt><esi:except><p>Nested error</p></esi:except></esi:try></esi:attempt><esi:except><p>Outer error</p></esi:except></esi:try></body></html>`,
+			context:          ProcessContext{},
+			shouldContain:    []string{"<p>Nested success</p>"},
+			shouldNotContain: []string{"<p>Nested error</p>", "<p>Outer error</p>", "<esi:try>", "<esi:attempt>", "<esi:except>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := NewProcessor(Config{
+				Mode:        tt.mode,
+				Debug:       false,
+				MaxIncludes: 10,
+				Cache: CacheConfig{
+					Enabled: false,
+				},
+			})
+
+			result, err := processor.Process(tt.html, tt.context)
+			assert.NoError(t, err)
+
+			for _, shouldContain := range tt.shouldContain {
+				assert.Contains(t, result, shouldContain, "Result should contain: %s", shouldContain)
+			}
+
+			for _, shouldNotContain := range tt.shouldNotContain {
+				assert.NotContains(t, result, shouldNotContain, "Result should not contain: %s", shouldNotContain)
+			}
+		})
+	}
+}
+
+func TestProcessor_EvaluateExpression(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		context  ProcessContext
+		expected string
+	}{
+		{
+			name:     "equality true",
+			expr:     "$(HTTP_HOST) == 'example.com'",
+			context:  ProcessContext{Headers: map[string]string{"Host": "example.com"}},
+			expected: "true",
+		},
+		{
+			name:     "equality false",
+			expr:     "$(HTTP_HOST) == 'example.com'",
+			context:  ProcessContext{Headers: map[string]string{"Host": "other.com"}},
+			expected: "false",
+		},
+		{
+			name:     "inequality true",
+			expr:     "$(HTTP_HOST) != 'example.com'",
+			context:  ProcessContext{Headers: map[string]string{"Host": "other.com"}},
+			expected: "true",
+		},
+		{
+			name:     "inequality false",
+			expr:     "$(HTTP_HOST) != 'example.com'",
+			context:  ProcessContext{Headers: map[string]string{"Host": "example.com"}},
+			expected: "false",
+		},
+		{
+			name:     "boolean true",
+			expr:     "$(HTTP_COOKIE{logged_in})",
+			context:  ProcessContext{Cookies: map[string]string{"logged_in": "true"}},
+			expected: "true",
+		},
+		{
+			name:     "boolean false",
+			expr:     "$(HTTP_COOKIE{logged_in})",
+			context:  ProcessContext{Cookies: map[string]string{}},
+			expected: "false",
+		},
+		{
+			name:     "literal true",
+			expr:     "true",
+			context:  ProcessContext{},
+			expected: "true",
+		},
+		{
+			name:     "literal false",
+			expr:     "false",
+			context:  ProcessContext{},
+			expected: "false",
+		},
+		{
+			name:     "empty string",
+			expr:     "",
+			context:  ProcessContext{},
+			expected: "false",
+		},
+		{
+			name:     "non-empty string",
+			expr:     "hello",
+			context:  ProcessContext{},
+			expected: "true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := NewProcessor(Config{Mode: "w3c"})
+			result := processor.evaluateExpression(tt.expr, tt.context)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}

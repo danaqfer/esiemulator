@@ -191,6 +191,127 @@ Akamai mode supports additional attributes on `<esi:include>`:
              onerror="continue" />
 ```
 
+## ESI Conditional Processing (`<esi:choose>`)
+
+The emulator provides comprehensive conditional processing support through the `<esi:choose>`, `<esi:when>`, and `<esi:otherwise>` elements:
+
+### Basic Conditional Logic
+
+```xml
+<esi:choose>
+    <esi:when test="$(HTTP_HOST) == 'example.com'">
+        <p>Welcome to Example.com!</p>
+    </esi:when>
+    <esi:otherwise>
+        <p>Welcome to our site!</p>
+    </esi:otherwise>
+</esi:choose>
+```
+
+### Multiple Conditions
+
+```xml
+<esi:choose>
+    <esi:when test="$(HTTP_HOST) == 'example.com'">
+        <p>Example.com content</p>
+    </esi:when>
+    <esi:when test="$(HTTP_HOST) == 'test.com'">
+        <p>Test.com content</p>
+    </esi:when>
+    <esi:when test="$(HTTP_COOKIE{logged_in})">
+        <p>Welcome back, user!</p>
+    </esi:when>
+    <esi:otherwise>
+        <p>Default content</p>
+    </esi:otherwise>
+</esi:choose>
+```
+
+### Supported Expression Operators
+
+- **Equality**: `==` (e.g., `$(HTTP_HOST) == 'example.com'`)
+- **Inequality**: `!=` (e.g., `$(HTTP_HOST) != 'example.com'`)
+- **Boolean**: Direct variable evaluation (e.g., `$(HTTP_COOKIE{logged_in})`)
+
+### Complex Conditions with Variables
+
+```xml
+<esi:choose>
+    <esi:when test="$(HTTP_USER_AGENT{browser}) == 'Chrome'">
+        <p>Chrome-specific content</p>
+    </esi:when>
+    <esi:when test="$(HTTP_ACCEPT_LANGUAGE{en})">
+        <p>English content</p>
+    </esi:when>
+    <esi:when test="$(QUERY_STRING{debug}) == 'true'">
+        <p>Debug information</p>
+    </esi:when>
+    <esi:otherwise>
+        <p>Fallback content</p>
+    </esi:otherwise>
+</esi:choose>
+```
+
+## ESI Error Handling (`<esi:try>`)
+
+The emulator provides robust error handling through the `<esi:try>`, `<esi:attempt>`, and `<esi:except>` elements:
+
+### Basic Error Handling
+
+```xml
+<esi:try>
+    <esi:attempt>
+        <esi:include src="/fragments/header" />
+    </esi:attempt>
+    <esi:except>
+        <p>Header could not be loaded</p>
+    </esi:except>
+</esi:try>
+```
+
+### Error Handling with Variables
+
+```xml
+<esi:try>
+    <esi:attempt>
+        <esi:vars>
+            <p>Host: $(HTTP_HOST)</p>
+            <p>User: $(HTTP_COOKIE{user_id})</p>
+        </esi:vars>
+    </esi:attempt>
+    <esi:except>
+        <p>Variable processing failed</p>
+    </esi:except>
+</esi:try>
+```
+
+### Nested Error Handling
+
+```xml
+<esi:try>
+    <esi:attempt>
+        <esi:try>
+            <esi:attempt>
+                <esi:include src="/fragments/critical" />
+            </esi:attempt>
+            <esi:except>
+                <esi:include src="/fragments/fallback" />
+            </esi:except>
+        </esi:try>
+    </esi:attempt>
+    <esi:except>
+        <p>All content failed to load</p>
+    </esi:except>
+</esi:try>
+```
+
+### Error Handling Best Practices
+
+1. **Graceful Degradation**: Always provide meaningful fallback content
+2. **Nested Protection**: Use nested try blocks for critical vs. non-critical content
+3. **Variable Safety**: Wrap variable processing in try blocks when using complex expressions
+4. **Include Protection**: Protect external includes that might fail
+
 ## ESI Variable Substitution (`<esi:vars>`)
 
 The emulator provides comprehensive ESI variable substitution support through the `<esi:vars>` element:
@@ -467,11 +588,11 @@ This is a **comprehensive ESI implementation** with full test coverage and produ
 - **Variable System**: Complete ESI variable expansion with HTTP headers, geo data, and custom variables
 - **Expression Engine**: Boolean expression evaluation for conditionals
 - **ESI Variable Substitution**: Full `<esi:vars>` implementation with default values, keys, and complex variable patterns
-- **Comprehensive Test Suite**: 124 passing tests covering all functionality
+- **Conditional Processing**: Complete `<esi:choose>/<esi:when>/<esi:otherwise>` implementation with expression evaluation
+- **Error Handling Blocks**: Full `<esi:try>/<esi:attempt>/<esi:except>` implementation for graceful error handling
+- **Comprehensive Test Suite**: 130+ passing tests covering all functionality
 
 ### 🚧 Placeholder Implementations
-- ESI choose/when/otherwise blocks (basic structure in place)
-- ESI try/attempt/except error handling (basic structure in place)  
 - <!--esi ...--> comment block processing (basic implementation)
 
 ### 📋 Future Enhancements

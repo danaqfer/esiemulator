@@ -385,21 +385,174 @@ func (p *Processor) fetchInclude(src string, context ProcessContext) (string, er
 	return content, nil
 }
 
-// processChoose handles esi:choose/when/otherwise elements (placeholder)
-func (p *Processor) processChoose(_ *goquery.Document, _ ProcessContext) error {
+// processChoose handles esi:choose/when/otherwise elements for conditional processing
+func (p *Processor) processChoose(doc *goquery.Document, context ProcessContext) error {
 	if p.config.Debug {
-		fmt.Println("🔍 Processing esi:choose elements (placeholder)")
+		fmt.Println("🔍 Processing esi:choose elements")
 	}
-	// TODO: Implement conditional processing
+
+	doc.Find("esi\\:choose, choose").Each(func(i int, chooseSelection *goquery.Selection) {
+		// Find all esi:when elements within this choose block
+		whenElements := chooseSelection.Find("esi\\:when, when")
+		otherwiseElement := chooseSelection.Find("esi\\:otherwise, otherwise").First()
+
+		var selectedContent string
+		var foundMatch bool
+
+		// Evaluate each when condition
+		whenElements.Each(func(j int, whenSelection *goquery.Selection) {
+			if foundMatch {
+				return // Skip if we already found a match
+			}
+
+			// Get the test attribute
+			test, exists := whenSelection.Attr("test")
+			if !exists || test == "" {
+				if p.config.Debug {
+					fmt.Println("⚠️  esi:when missing test attribute")
+				}
+				return
+			}
+
+			// Evaluate the test expression
+			result := p.evaluateExpression(test, context)
+			if result == "true" {
+				// Get the content of this when block
+				content, err := whenSelection.Html()
+				if err != nil {
+					if p.config.Debug {
+						fmt.Printf("⚠️  Failed to get esi:when content: %v\n", err)
+					}
+					return
+				}
+
+				selectedContent = content
+				foundMatch = true
+
+				if p.config.Debug {
+					fmt.Printf("✅ esi:when condition '%s' matched\n", test)
+				}
+			}
+		})
+
+		// If no when condition matched, use otherwise
+		if !foundMatch && otherwiseElement.Length() > 0 {
+			content, err := otherwiseElement.Html()
+			if err != nil {
+				if p.config.Debug {
+					fmt.Printf("⚠️  Failed to get esi:otherwise content: %v\n", err)
+				}
+			} else {
+				selectedContent = content
+				if p.config.Debug {
+					fmt.Println("✅ Using esi:otherwise content")
+				}
+			}
+		}
+
+		// Replace the entire choose block with the selected content
+		if selectedContent != "" {
+			chooseSelection.ReplaceWithHtml(selectedContent)
+		} else {
+			// Remove the choose block if no content was selected
+			chooseSelection.Remove()
+		}
+
+		if p.config.Debug {
+			fmt.Printf("📝 Processed esi:choose block: %s\n", truncateString(selectedContent, 50))
+		}
+	})
+
 	return nil
 }
 
-// processTry handles esi:try/attempt/except elements (placeholder)
-func (p *Processor) processTry(_ *goquery.Document, _ ProcessContext) error {
+// processTry handles esi:try/attempt/except elements for error handling
+func (p *Processor) processTry(doc *goquery.Document, context ProcessContext) error {
 	if p.config.Debug {
-		fmt.Println("🔍 Processing esi:try elements (placeholder)")
+		fmt.Println("🔍 Processing esi:try elements")
 	}
-	// TODO: Implement error handling blocks
+
+	doc.Find("esi\\:try, try").Each(func(i int, trySelection *goquery.Selection) {
+		// Find attempt and except elements
+		attemptElement := trySelection.Find("esi\\:attempt, attempt").First()
+		exceptElement := trySelection.Find("esi\\:except, except").First()
+
+		var finalContent string
+		var processingError error
+
+		// Try to process the attempt block
+		if attemptElement.Length() > 0 {
+			content, err := attemptElement.Html()
+			if err != nil {
+				if p.config.Debug {
+					fmt.Printf("⚠️  Failed to get esi:attempt content: %v\n", err)
+				}
+				processingError = err
+			} else {
+				// Create a temporary processor to process the attempt content
+				// This allows us to catch errors from includes, vars, etc.
+				tempProcessor := NewProcessor(p.config)
+
+				// Process the attempt content
+				processedContent, err := tempProcessor.Process(content, context)
+				if err != nil {
+					if p.config.Debug {
+						fmt.Printf("⚠️  Error processing esi:attempt content: %v\n", err)
+					}
+					processingError = err
+				} else {
+					// Check if the processed content contains error indicators
+					if strings.Contains(processedContent, "ESI include error") ||
+						strings.Contains(processedContent, "failed to fetch") ||
+						strings.Contains(processedContent, "HTTP 4") ||
+						strings.Contains(processedContent, "HTTP 5") {
+						processingError = fmt.Errorf("include processing failed")
+					} else {
+						finalContent = processedContent
+						if p.config.Debug {
+							fmt.Println("✅ esi:attempt content processed successfully")
+						}
+					}
+				}
+			}
+		}
+
+		// If there was an error and we have an except block, use it
+		if processingError != nil && exceptElement.Length() > 0 {
+			content, err := exceptElement.Html()
+			if err != nil {
+				if p.config.Debug {
+					fmt.Printf("⚠️  Failed to get esi:except content: %v\n", err)
+				}
+			} else {
+				// Process the except content
+				processedContent, err := p.Process(content, context)
+				if err != nil {
+					if p.config.Debug {
+						fmt.Printf("⚠️  Error processing esi:except content: %v\n", err)
+					}
+				} else {
+					finalContent = processedContent
+					if p.config.Debug {
+						fmt.Println("✅ Using esi:except content due to error")
+					}
+				}
+			}
+		}
+
+		// Replace the entire try block with the final content
+		if finalContent != "" {
+			trySelection.ReplaceWithHtml(finalContent)
+		} else {
+			// Remove the try block if no content was processed
+			trySelection.Remove()
+		}
+
+		if p.config.Debug {
+			fmt.Printf("📝 Processed esi:try block: %s\n", truncateString(finalContent, 50))
+		}
+	})
+
 	return nil
 }
 
@@ -755,4 +908,61 @@ func (p *Processor) getQueryParam(queryString, key string) string {
 	}
 
 	return values.Get(key)
+}
+
+// evaluateExpression evaluates a simple ESI expression
+func (p *Processor) evaluateExpression(expr string, context ProcessContext) string {
+	// Expand variables first
+	expanded := p.ExpandESIVariables(expr, context)
+
+	// Simple expression evaluation
+	// This is a basic implementation - a full parser would be more robust
+	if strings.Contains(expanded, "==") {
+		parts := strings.Split(expanded, "==")
+		if len(parts) == 2 {
+			left := strings.TrimSpace(parts[0])
+			right := strings.TrimSpace(parts[1])
+
+			// Remove surrounding quotes if present
+			left = strings.Trim(left, "'\"")
+			right = strings.Trim(right, "'\"")
+
+			if left == right {
+				return "true"
+			}
+			return "false"
+		}
+	}
+
+	if strings.Contains(expanded, "!=") {
+		parts := strings.Split(expanded, "!=")
+		if len(parts) == 2 {
+			left := strings.TrimSpace(parts[0])
+			right := strings.TrimSpace(parts[1])
+
+			// Remove surrounding quotes if present
+			left = strings.Trim(left, "'\"")
+			right = strings.Trim(right, "'\"")
+
+			if left != right {
+				return "true"
+			}
+			return "false"
+		}
+	}
+
+	// Check for simple boolean values
+	if expanded == "true" || expanded == "1" {
+		return "true"
+	}
+	if expanded == "false" || expanded == "0" || expanded == "" {
+		return "false"
+	}
+
+	// If it's not empty, consider it true
+	if expanded != "" {
+		return "true"
+	}
+
+	return "false"
 }
