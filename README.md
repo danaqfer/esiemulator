@@ -1,6 +1,6 @@
-# ESI Simulator
+# ESI Emulator
 
-A comprehensive Edge Side Include (ESI) simulator written in Go that supports both Fastly's limited ESI functionality and Akamai's extended ESI capabilities.
+A comprehensive Edge Side Include (ESI) emulator written in Go that supports both Fastly's limited ESI functionality and Akamai's extended ESI capabilities.
 
 ## Overview
 
