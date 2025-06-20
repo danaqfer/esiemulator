@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"esi-emulator/pkg/esi"
+	"github.com/edge-computing/emulator-suite/pkg/esi"
 )
 
 func main() {

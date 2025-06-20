@@ -30,7 +30,7 @@ $(BUILD_DIR):
 .PHONY: build
 build: $(BUILD_DIR)
 	@echo "Building Edge Computing Emulator Suite..."
-	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(MAIN_PATH)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/edge-emulator
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 # Build for multiple platforms
