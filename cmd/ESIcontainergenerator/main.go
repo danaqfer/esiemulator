@@ -16,10 +16,11 @@ import (
 
 // Command line flags
 var (
-	inputFile  = flag.String("input", "", "Input JSON configuration file (required)")
-	outputFile = flag.String("output", "", "Output HTML file (optional, defaults to input filename with .html extension)")
-	verbose    = flag.Bool("verbose", false, "Enable verbose output")
-	help       = flag.Bool("help", false, "Show help information")
+	inputFile   = flag.String("input", "", "Input JSON configuration file (required)")
+	outputFile  = flag.String("output", "", "Output HTML file (optional, defaults to input filename with .html extension)")
+	verbose     = flag.Bool("verbose", false, "Enable verbose output")
+	browserVars = flag.Bool("browser-vars", false, "Use browser-like ESI variable substitution (default: static macros only)")
+	help        = flag.Bool("help", false, "Show help information")
 )
 
 // Example configuration structure for demonstration
@@ -148,6 +149,11 @@ func setDefaults(config *esi.ContainerTagConfig) {
 func generateESIHTML(config *esi.ContainerTagConfig) (string, error) {
 	if *verbose {
 		fmt.Printf("🔧 Generating ESI HTML for client: %s, property: %s\n", config.ClientID, config.PropertyID)
+		if *browserVars {
+			fmt.Printf("🌐 Using browser-like ESI variable substitution\n")
+		} else {
+			fmt.Printf("📝 Using static macro substitution only\n")
+		}
 	}
 
 	// Create ESI processor
@@ -165,8 +171,18 @@ func generateESIHTML(config *esi.ContainerTagConfig) (string, error) {
 	// Create container tag processor
 	ctp := esi.NewContainerTagProcessor(*config, esiProcessor)
 
-	// Generate complete HTML with ESI
-	htmlContent, err := ctp.GenerateCompleteESIHTML()
+	var htmlContent string
+	var err error
+
+	// Choose generation method based on browser-vars flag
+	if *browserVars {
+		// Generate HTML with ESI variable expressions that will be resolved at runtime
+		htmlContent, err = ctp.GenerateCompleteESIHTMLWithBrowserVariables()
+	} else {
+		// Generate HTML with static macro substitution only
+		htmlContent, err = ctp.GenerateCompleteESIHTML()
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("failed to generate ESI HTML: %w", err)
 	}
@@ -250,7 +266,7 @@ func printHelp() {
 	fmt.Println("Generates HTML files with ESI embedded code from JSON configuration files.")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  ESIcontainergenerator -input <config.json> [-output <output.html>] [-verbose]")
+	fmt.Println("  ESIcontainergenerator -input <config.json> [-output <output.html>] [-verbose] [-browser-vars]")
 	fmt.Println()
 	fmt.Println("Flags:")
 	fmt.Println("  -input string")
@@ -259,11 +275,29 @@ func printHelp() {
 	fmt.Println("        Output HTML file (optional, defaults to input filename with .html extension)")
 	fmt.Println("  -verbose")
 	fmt.Println("        Enable verbose output")
+	fmt.Println("  -browser-vars")
+	fmt.Println("        Use browser-like ESI variable substitution (default: static macros only)")
+	fmt.Println("        When enabled, generates ESI expressions like $(HTTP_USER_AGENT) that are")
+	fmt.Println("        resolved at runtime by the ESI processor for each browser request.")
 	fmt.Println("  -help")
 	fmt.Println("        Show this help information")
 	fmt.Println()
-	fmt.Println("Example:")
+	fmt.Println("Examples:")
 	fmt.Println("  ESIcontainergenerator -input beacon-config.json -output container.html -verbose")
+	fmt.Println("  ESIcontainergenerator -input beacon-config.json -browser-vars -output dynamic-container.html")
+	fmt.Println()
+	fmt.Println("Variable Substitution Modes:")
+	fmt.Println("  Static Mode (default):")
+	fmt.Println("    - Substitutes only static macros from JSON configuration")
+	fmt.Println("    - All values are resolved at generation time")
+	fmt.Println("    - Example: ${USER_ID} -> 12345")
+	fmt.Println()
+	fmt.Println("  Browser Variables Mode (-browser-vars):")
+	fmt.Println("    - Generates ESI expressions for dynamic browser data")
+	fmt.Println("    - Variables are resolved at runtime by ESI processor")
+	fmt.Println("    - Example: ${USER_AGENT} -> $(HTTP_USER_AGENT)")
+	fmt.Println("    - Example: ${CLIENT_IP} -> $(CLIENT_IP)")
+	fmt.Println("    - Example: ${PAGE_URL} -> $(REQUEST_URI)")
 	fmt.Println()
 	fmt.Println("JSON Configuration Format:")
 	fmt.Println("  {")
@@ -281,7 +315,9 @@ func printHelp() {
 	fmt.Println("        \"category\": \"analytics\",")
 	fmt.Println("        \"parameters\": {")
 	fmt.Println("          \"user_id\": \"${USER_ID}\",")
-	fmt.Println("          \"site_id\": \"${SITE_ID}\"")
+	fmt.Println("          \"site_id\": \"${SITE_ID}\",")
+	fmt.Println("          \"user_agent\": \"${USER_AGENT}\",")
+	fmt.Println("          \"client_ip\": \"${CLIENT_IP}\"")
 	fmt.Println("        }")
 	fmt.Println("      }")
 	fmt.Println("    ],")

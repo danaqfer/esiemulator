@@ -86,7 +86,29 @@
         "session_id": "${SESSION_ID}",
         "page_url": "${PAGE_URL}",
         "referrer": "${REFERRER}",
-        "timestamp": "${TIMESTAMP}"
+        "timestamp": "${TIMESTAMP}",
+        "browser": "${BROWSER}",
+        "os": "${OS}",
+        "country": "${GEO_COUNTRY_CODE}",
+        "language": "${LANGUAGE}"
+      }
+    },
+    {
+      "id": "geo-targeted-beacon",
+      "name": "Geo-Targeted Beacon",
+      "url": "https://geo.example.com/track",
+      "method": "GET",
+      "enabled": true,
+      "category": "analytics",
+      "description": "Geo-targeted analytics beacon",
+      "parameters": {
+        "country_code": "${GEO_COUNTRY_CODE}",
+        "country_name": "${GEO_COUNTRY_NAME}",
+        "region": "${GEO_REGION}",
+        "city": "${GEO_CITY}",
+        "client_ip": "${CLIENT_IP}",
+        "user_agent": "${USER_AGENT}",
+        "device_type": "${DEVICE_TYPE}"
       }
     }
   ],
