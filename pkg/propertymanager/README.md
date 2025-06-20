@@ -2,6 +2,26 @@
 
 A comprehensive Akamai Property Manager emulator written in Go that simulates Akamai's edge computing platform for testing and development purposes.
 
+## Modes of Operation
+
+- **Standalone Property Manager Mode**: Run only the Property Manager emulator for traffic management and content delivery.
+- **Integrated Mode (with ESI)**: Run Property Manager together with the ESI emulator, simulating the full Akamai edge workflow (Property Manager processes the request, invokes ESI, then applies response behaviors).
+
+### How to Run
+
+After building the project (see root README), use the following commands from the project root:
+
+```sh
+# Standalone Property Manager Mode
+bin/edge-emulator -mode=property-manager -debug -port=3002
+
+# Integrated Mode (Property Manager + ESI)
+bin/edge-emulator -mode=integrated -esi-mode=akamai -debug -port=3003
+```
+
+- All binaries are in the `bin/` directory.
+- All test output is in `cmd/edge-emulator/test_output/` (untracked).
+
 ## Overview
 
 Akamai Property Manager is a powerful edge computing platform that allows you to configure complex traffic management, content delivery, and security policies at the edge of the network. This emulator provides a complete implementation that supports:

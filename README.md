@@ -2,6 +2,32 @@
 
 A comprehensive suite of edge computing emulators written in Go that provides development and testing capabilities for modern edge computing platforms.
 
+## Modes of Operation
+
+This suite can be run in three distinct modes:
+
+- **Standalone ESI Mode**: Run only the ESI (Edge Side Includes) emulator for Fastly, Akamai, W3C, or development use cases.
+- **Standalone Property Manager Mode**: Run only the Akamai Property Manager emulator for traffic management and content delivery.
+- **Integrated Mode**: Run both Property Manager and ESI in a seamless workflow (Property Manager processes the request, invokes ESI, then applies response behaviors).
+
+### How to Run
+
+After building (see below), use the following commands from the project root:
+
+```sh
+# Standalone ESI Mode (Fastly, W3C, or development)
+bin/edge-emulator -mode=esi -esi-mode=fastly -debug -port=3001
+
+# Standalone Property Manager Mode
+bin/edge-emulator -mode=property-manager -debug -port=3002
+
+# Integrated Mode (Akamai-like workflow)
+bin/edge-emulator -mode=integrated -esi-mode=akamai -debug -port=3003
+```
+
+- All binaries are in the `bin/` directory.
+- All test output is in `cmd/edge-emulator/test_output/` (untracked).
+
 ## Overview
 
 This project provides standalone, production-ready emulators for major edge computing technologies:
