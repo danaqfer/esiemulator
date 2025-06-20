@@ -55,4 +55,7 @@ coverage.out
 
 # Additional files to ignore
 /bin/
-cmd/edge-emulator/test_output/ 
+cmd/edge-emulator/test_output/
+
+# Reference resources (not part of this project)
+pxcel/ 

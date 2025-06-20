@@ -3,8 +3,10 @@
 
 # Variables
 BINARY_NAME = edge-emulator
+ESI_GENERATOR_NAME = ESIcontainergenerator
 BUILD_DIR = bin
 MAIN_PATH = cmd/edge-emulator/main.go
+ESI_GENERATOR_PATH = cmd/ESIcontainergenerator/main.go
 PROJECT_ROOT = $(shell pwd)
 
 # Go parameters
@@ -33,6 +35,18 @@ build: $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/edge-emulator
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
+# Build ESI Container Generator
+.PHONY: build-esi-generator
+build-esi-generator: $(BUILD_DIR)
+	@echo "Building ESI Container Generator..."
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(ESI_GENERATOR_NAME) ./cmd/ESIcontainergenerator
+	@echo "Build complete: $(BUILD_DIR)/$(ESI_GENERATOR_NAME)"
+
+# Build all tools
+.PHONY: build-all-tools
+build-all-tools: build build-esi-generator
+	@echo "All tools built successfully"
+
 # Build for multiple platforms
 .PHONY: build-all
 build-all: build-linux build-windows build-darwin
@@ -41,16 +55,19 @@ build-all: build-linux build-windows build-darwin
 build-linux: $(BUILD_DIR)
 	@echo "Building for Linux..."
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(MAIN_PATH)
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(ESI_GENERATOR_NAME)-linux-amd64 $(ESI_GENERATOR_PATH)
 
 .PHONY: build-windows
 build-windows: $(BUILD_DIR)
 	@echo "Building for Windows..."
 	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe $(MAIN_PATH)
+	GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(ESI_GENERATOR_NAME)-windows-amd64.exe $(ESI_GENERATOR_PATH)
 
 .PHONY: build-darwin
 build-darwin: $(BUILD_DIR)
 	@echo "Building for macOS..."
 	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 $(MAIN_PATH)
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(ESI_GENERATOR_NAME)-darwin-amd64 $(ESI_GENERATOR_PATH)
 
 # Run tests
 .PHONY: test
@@ -201,7 +218,9 @@ help:
 	@echo "Edge Computing Emulator Suite - Available Commands:"
 	@echo ""
 	@echo "Build Commands:"
-	@echo "  build              Build the application"
+	@echo "  build              Build the main application"
+	@echo "  build-esi-generator Build ESI Container Generator"
+	@echo "  build-all-tools    Build all tools (main app + ESI generator)"
 	@echo "  build-all          Build for all platforms (Linux, Windows, macOS)"
 	@echo "  build-linux        Build for Linux"
 	@echo "  build-windows      Build for Windows"
@@ -215,6 +234,11 @@ help:
 	@echo "  run-debug          Run ESI emulator in debug mode"
 	@echo "  run-property-manager-debug Run Property Manager in debug mode"
 	@echo "  run-binary         Build and run binary"
+	@echo ""
+	@echo "ESI Generator Commands:"
+	@echo "  ./bin/ESIcontainergenerator -input config.json -output container.html"
+	@echo "  ./bin/ESIcontainergenerator -input config.json -verbose"
+	@echo "  ./bin/ESIcontainergenerator -help"
 	@echo ""
 	@echo "Development Commands:"
 	@echo "  test               Run tests"
@@ -240,8 +264,9 @@ help:
 	@echo "  DEBUG              Enable debug mode"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make build"
+	@echo "  make build-all-tools"
 	@echo "  make run"
 	@echo "  make run-property-manager"
 	@echo "  make test-coverage"
+	@echo "  ./bin/ESIcontainergenerator -input cmd/ESIcontainergenerator/example-config.json -verbose"
 	@echo "  EMULATOR_MODE=esi ESI_MODE=fastly make run" 

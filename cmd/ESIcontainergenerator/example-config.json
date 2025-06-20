@@ -1,0 +1,115 @@
+{
+  "clientId": "demo-client-123",
+  "propertyId": "demo-property-456",
+  "environment": "development",
+  "version": "1.0.0",
+  "beacons": [
+    {
+      "id": "google-analytics",
+      "name": "Google Analytics",
+      "url": "https://www.google-analytics.com/collect",
+      "method": "GET",
+      "enabled": true,
+      "category": "analytics",
+      "description": "Google Analytics tracking pixel",
+      "parameters": {
+        "v": "1",
+        "tid": "${GA_TRACKING_ID}",
+        "cid": "${CLIENT_ID}",
+        "t": "pageview",
+        "dp": "${PAGE_PATH}",
+        "dt": "${PAGE_TITLE}",
+        "uip": "${CLIENT_IP}",
+        "ua": "${USER_AGENT}"
+      }
+    },
+    {
+      "id": "facebook-pixel",
+      "name": "Facebook Pixel",
+      "url": "https://www.facebook.com/tr",
+      "method": "GET",
+      "enabled": true,
+      "category": "advertising",
+      "description": "Facebook advertising pixel",
+      "parameters": {
+        "id": "${FB_PIXEL_ID}",
+        "ev": "PageView",
+        "dl": "${PAGE_URL}",
+        "dt": "${PAGE_TITLE}",
+        "uip": "${CLIENT_IP}",
+        "ua": "${USER_AGENT}"
+      }
+    },
+    {
+      "id": "twitter-pixel",
+      "name": "Twitter Pixel",
+      "url": "https://analytics.twitter.com/i/adsct",
+      "method": "GET",
+      "enabled": true,
+      "category": "advertising",
+      "description": "Twitter advertising pixel",
+      "parameters": {
+        "p_id": "Twitter",
+        "p_user_id": "${USER_ID}",
+        "event": "page_view",
+        "page_url": "${PAGE_URL}",
+        "page_title": "${PAGE_TITLE}"
+      }
+    },
+    {
+      "id": "linkedin-pixel",
+      "name": "LinkedIn Pixel",
+      "url": "https://px.ads.linkedin.com/collect",
+      "method": "GET",
+      "enabled": false,
+      "category": "advertising",
+      "description": "LinkedIn advertising pixel (disabled)",
+      "parameters": {
+        "pid": "${LINKEDIN_PIXEL_ID}",
+        "fmt": "js",
+        "time": "${TIMESTAMP}",
+        "url": "${PAGE_URL}"
+      }
+    },
+    {
+      "id": "custom-analytics",
+      "name": "Custom Analytics",
+      "url": "https://analytics.example.com/track",
+      "method": "POST",
+      "enabled": true,
+      "category": "analytics",
+      "description": "Custom analytics endpoint",
+      "timeout": 3000,
+      "parameters": {
+        "event": "page_view",
+        "user_id": "${USER_ID}",
+        "session_id": "${SESSION_ID}",
+        "page_url": "${PAGE_URL}",
+        "referrer": "${REFERRER}",
+        "timestamp": "${TIMESTAMP}"
+      }
+    }
+  ],
+  "settings": {
+    "maxConcurrentBeacons": 10,
+    "defaultTimeout": 5000,
+    "fireAndForget": true,
+    "maxWait": 0,
+    "enableLogging": true,
+    "enableErrorHandling": true,
+    "defaultMethod": "GET"
+  },
+  "macros": {
+    "GA_TRACKING_ID": "UA-123456789-1",
+    "FB_PIXEL_ID": "123456789012345",
+    "LINKEDIN_PIXEL_ID": "123456",
+    "USER_ID": "demo-user-123",
+    "SESSION_ID": "demo-session-456",
+    "PAGE_URL": "https://example.com/demo-page",
+    "PAGE_PATH": "/demo-page",
+    "PAGE_TITLE": "Demo Page - Example.com",
+    "REFERRER": "https://google.com",
+    "CLIENT_IP": "192.168.1.100",
+    "USER_AGENT": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  }
+} 
