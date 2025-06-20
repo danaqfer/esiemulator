@@ -1,4 +1,4 @@
-module esi-emulator
+module github.com/edge-computing/emulator-suite
 
 go 1.21
 

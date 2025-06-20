@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
-	"esi-emulator/pkg/esi"
+	"github.com/edge-computing/emulator-suite/pkg/esi"
+	"github.com/edge-computing/emulator-suite/pkg/propertymanager"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,12 +21,14 @@ type Config struct {
 	Mode  string `json:"mode"`
 }
 
-// Server represents the ESI HTTP server
+// Server represents the HTTP server that can handle both ESI and Property Manager
 type Server struct {
-	processor *esi.Processor
-	config    Config
-	router    *gin.Engine
-	server    *http.Server
+	esiProcessor      *esi.Processor
+	propertyProcessor *propertymanager.PropertyManager
+	config            Config
+	router            *gin.Engine
+	server            *http.Server
+	emulatorType      string
 }
 
 // ProcessRequest represents a request to process ESI content
@@ -37,6 +41,18 @@ type ProcessRequest struct {
 type ProcessResponse struct {
 	Result string    `json:"result"`
 	Stats  StatsInfo `json:"stats"`
+}
+
+// PropertyManagerRequest represents a request to process Property Manager rules
+type PropertyManagerRequest struct {
+	Rules   []propertymanager.Rule       `json:"rules" binding:"required"`
+	Context *propertymanager.HTTPContext `json:"context" binding:"required"`
+}
+
+// PropertyManagerResponse represents the response from processing Property Manager rules
+type PropertyManagerResponse struct {
+	Result *propertymanager.RuleResult `json:"result"`
+	Stats  StatsInfo                   `json:"stats"`
 }
 
 // StatsInfo holds statistics information
@@ -64,8 +80,23 @@ type Example struct {
 	Modes       []string `json:"modes"`
 }
 
-// New creates a new ESI server
-func New(processor *esi.Processor, config Config) *Server {
+// IntegratedProcessRequest represents a request for integrated processing
+type IntegratedProcessRequest struct {
+	HTML    string                       `json:"html" binding:"required"`
+	Context *propertymanager.HTTPContext `json:"context" binding:"required"`
+}
+
+// IntegratedProcessResponse represents the response from integrated processing
+type IntegratedProcessResponse struct {
+	PropertyManagerResult *propertymanager.RuleResult `json:"propertyManager"`
+	ResponseResult        *propertymanager.RuleResult `json:"response"`
+	ProcessedHTML         string                      `json:"processedHtml"`
+	ESIEnabled            bool                        `json:"esiEnabled"`
+	Stats                 StatsInfo                   `json:"stats"`
+}
+
+// New creates a new server
+func New(config Config) *Server {
 	// Set Gin mode
 	if !config.Debug {
 		gin.SetMode(gin.ReleaseMode)
@@ -79,13 +110,24 @@ func New(processor *esi.Processor, config Config) *Server {
 	router.Use(corsMiddleware())
 
 	server := &Server{
-		processor: processor,
-		config:    config,
-		router:    router,
+		config: config,
+		router: router,
 	}
 
 	server.setupRoutes()
 	return server
+}
+
+// SetESIProcessor sets the ESI processor for the server
+func (s *Server) SetESIProcessor(processor *esi.Processor) {
+	s.esiProcessor = processor
+	s.emulatorType = "esi"
+}
+
+// SetPropertyManagerProcessor sets the Property Manager processor for the server
+func (s *Server) SetPropertyManagerProcessor(processor *propertymanager.PropertyManager) {
+	s.propertyProcessor = processor
+	s.emulatorType = "property-manager"
 }
 
 // setupRoutes configures all HTTP routes
@@ -93,44 +135,44 @@ func (s *Server) setupRoutes() {
 	// Root endpoint - status and configuration
 	s.router.GET("/", s.handleRoot)
 
-	// Process ESI content
-	s.router.POST("/process", s.handleProcess)
-
-	// Statistics endpoint
-	s.router.GET("/stats", s.handleStats)
-
-	// Cache management
-	s.router.DELETE("/cache", s.handleClearCache)
-
-	// Examples endpoints
+	// ESI endpoints
+	s.router.POST("/process", s.handleESIProcess)
 	s.router.GET("/examples", s.handleListExamples)
 	s.router.GET("/examples/:name", s.handleGetExample)
-
-	// Test fragments endpoint
 	s.router.GET("/fragments/:name", s.handleGetFragment)
 
-	// Health check
+	// Property Manager endpoints
+	s.router.POST("/property-manager/process", s.handlePropertyManagerProcess)
+
+	// Integrated endpoints (when both processors are available)
+	s.router.POST("/integrated/process", s.handleIntegratedProcess)
+
+	// Common endpoints
+	s.router.GET("/stats", s.handleStats)
+	s.router.DELETE("/cache", s.handleClearCache)
 	s.router.GET("/health", s.handleHealth)
 }
 
 // handleRoot returns server information and available endpoints
 func (s *Server) handleRoot(c *gin.Context) {
-	stats := s.processor.GetStats()
-	features := s.processor.GetFeatures()
+	var stats interface{}
+	var features interface{}
+	var endpoints map[string]string
 
-	c.JSON(http.StatusOK, gin.H{
-		"name":     "ESI Emulator",
-		"version":  "0.1.0",
-		"mode":     s.config.Mode,
-		"features": features,
-		"stats": gin.H{
-			"requests":  stats.Requests,
-			"cacheHits": stats.CacheHits,
-			"cacheMiss": stats.CacheMiss,
-			"errors":    stats.Errors,
-			"totalTime": stats.TotalTime,
-		},
-		"endpoints": gin.H{
+	switch s.emulatorType {
+	case "esi":
+		if s.esiProcessor != nil {
+			esiStats := s.esiProcessor.GetStats()
+			stats = gin.H{
+				"requests":  esiStats.Requests,
+				"cacheHits": esiStats.CacheHits,
+				"cacheMiss": esiStats.CacheMiss,
+				"errors":    esiStats.Errors,
+				"totalTime": esiStats.TotalTime,
+			}
+			features = s.esiProcessor.GetFeatures()
+		}
+		endpoints = map[string]string{
 			"/process":         "POST - Process ESI content",
 			"/examples":        "GET - List available examples",
 			"/examples/:name":  "GET - Get specific example",
@@ -138,12 +180,60 @@ func (s *Server) handleRoot(c *gin.Context) {
 			"/cache":           "DELETE - Clear cache",
 			"/fragments/:name": "GET - Get test fragments",
 			"/health":          "GET - Health check",
-		},
+		}
+	case "property-manager":
+		if s.propertyProcessor != nil {
+			// Property Manager doesn't have stats yet, but we can add them
+			stats = gin.H{
+				"requests":  0,
+				"cacheHits": 0,
+				"cacheMiss": 0,
+				"errors":    0,
+				"totalTime": 0,
+			}
+			features = []string{"rule-processing", "criteria-evaluation", "behavior-execution"}
+		}
+		endpoints = map[string]string{
+			"/property-manager/process": "POST - Process Property Manager rules",
+			"/stats":                    "GET - Get processing statistics",
+			"/cache":                    "DELETE - Clear cache",
+			"/health":                   "GET - Health check",
+		}
+	default:
+		stats = gin.H{
+			"requests":  0,
+			"cacheHits": 0,
+			"cacheMiss": 0,
+			"errors":    0,
+			"totalTime": 0,
+		}
+		features = []string{}
+		endpoints = map[string]string{
+			"/health": "GET - Health check",
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"name":      "Edge Computing Emulator",
+		"version":   "0.1.0",
+		"mode":      s.config.Mode,
+		"type":      s.emulatorType,
+		"features":  features,
+		"stats":     stats,
+		"endpoints": endpoints,
 	})
 }
 
-// handleProcess processes ESI content
-func (s *Server) handleProcess(c *gin.Context) {
+// handleESIProcess processes ESI content
+func (s *Server) handleESIProcess(c *gin.Context) {
+	if s.esiProcessor == nil {
+		c.JSON(http.StatusServiceUnavailable, ErrorResponse{
+			Error:   "ESI processor not available",
+			Message: "ESI processor has not been configured",
+		})
+		return
+	}
+
 	var req ProcessRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{
@@ -175,7 +265,7 @@ func (s *Server) handleProcess(c *gin.Context) {
 	}
 
 	startTime := time.Now()
-	result, err := s.processor.Process(req.HTML, *req.Context)
+	result, err := s.esiProcessor.Process(req.HTML, *req.Context)
 	processingTime := time.Since(startTime).Milliseconds()
 
 	if err != nil {
@@ -186,7 +276,7 @@ func (s *Server) handleProcess(c *gin.Context) {
 		return
 	}
 
-	stats := s.processor.GetStats()
+	stats := s.esiProcessor.GetStats()
 	c.JSON(http.StatusOK, ProcessResponse{
 		Result: result,
 		Stats: StatsInfo{
@@ -201,42 +291,356 @@ func (s *Server) handleProcess(c *gin.Context) {
 	})
 }
 
+// handlePropertyManagerProcess processes Property Manager rules
+func (s *Server) handlePropertyManagerProcess(c *gin.Context) {
+	if s.propertyProcessor == nil {
+		c.JSON(http.StatusServiceUnavailable, ErrorResponse{
+			Error:   "Property Manager processor not available",
+			Message: "Property Manager processor has not been configured",
+		})
+		return
+	}
+
+	var req PropertyManagerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid request",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Set rules
+	s.propertyProcessor.SetRules(req.Rules)
+
+	startTime := time.Now()
+	result, err := s.propertyProcessor.ProcessHTTPContext(req.Context)
+	processingTime := time.Since(startTime).Milliseconds()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Property Manager processing failed",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, PropertyManagerResponse{
+		Result: result,
+		Stats: StatsInfo{
+			ProcessingTime: processingTime,
+			Mode:           s.config.Mode,
+			Requests:       1, // We can enhance this with actual stats
+			CacheHits:      0,
+			CacheMiss:      0,
+			Errors:         0,
+			TotalTime:      processingTime,
+		},
+	})
+}
+
+// handleIntegratedProcess processes requests through both Property Manager and ESI
+func (s *Server) handleIntegratedProcess(c *gin.Context) {
+	if s.propertyProcessor == nil || s.esiProcessor == nil {
+		c.JSON(http.StatusServiceUnavailable, ErrorResponse{
+			Error:   "Integrated processing not available",
+			Message: "Both Property Manager and ESI processors must be configured for integrated mode",
+		})
+		return
+	}
+
+	var req IntegratedProcessRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid request",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Create HTTP request from context
+	httpReq, err := s.createHTTPRequest(req.Context)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid HTTP context",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	startTime := time.Now()
+
+	// Step 1: Property Manager processes the request
+	pmResult, err := s.propertyProcessor.ProcessRequest(httpReq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Property Manager processing failed",
+			Message: err.Error(),
+		})
+		return
+	}
+
+	// Step 2: Create ESI context from Property Manager result
+	esiContext := s.createESIContext(httpReq, pmResult)
+
+	// Step 3: Process ESI content if enabled
+	var processedHTML string
+	if s.isESIEnabled(pmResult) {
+		processedHTML, err = s.esiProcessor.Process(req.HTML, esiContext)
+		if err != nil {
+			// Continue with original HTML if ESI fails
+			processedHTML = req.HTML
+		}
+	} else {
+		processedHTML = req.HTML
+	}
+
+	// Step 4: Process response behaviors
+	responseResult := s.processResponseBehaviors(pmResult, processedHTML)
+
+	processingTime := time.Since(startTime).Milliseconds()
+
+	c.JSON(http.StatusOK, IntegratedProcessResponse{
+		PropertyManagerResult: pmResult,
+		ResponseResult:        responseResult,
+		ProcessedHTML:         processedHTML,
+		ESIEnabled:            s.isESIEnabled(pmResult),
+		Stats: StatsInfo{
+			ProcessingTime: processingTime,
+			Mode:           s.config.Mode,
+			Requests:       1,
+			CacheHits:      0,
+			CacheMiss:      0,
+			Errors:         0,
+			TotalTime:      processingTime,
+		},
+	})
+}
+
+// createHTTPRequest creates an HTTP request from the context
+func (s *Server) createHTTPRequest(ctx *propertymanager.HTTPContext) (*http.Request, error) {
+	// Create a basic HTTP request
+	req, err := http.NewRequest(ctx.Method, ctx.Path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set headers
+	for key, value := range ctx.Headers {
+		req.Header.Set(key, value)
+	}
+
+	// Set host
+	if ctx.Host != "" {
+		req.Host = ctx.Host
+	}
+
+	return req, nil
+}
+
+// createESIContext creates an ESI processing context from Property Manager result
+func (s *Server) createESIContext(req *http.Request, pmResult *propertymanager.RuleResult) esi.ProcessContext {
+	// Start with request headers
+	headers := make(map[string]string)
+	for key, values := range req.Header {
+		if len(values) > 0 {
+			headers[key] = values[0]
+		}
+	}
+
+	// Apply Property Manager header modifications
+	for key, value := range pmResult.ModifiedHeaders {
+		headers[key] = value
+	}
+
+	// Remove headers that were removed by Property Manager
+	for _, removedHeader := range pmResult.RemovedHeaders {
+		delete(headers, removedHeader)
+	}
+
+	// Extract cookies
+	cookies := make(map[string]string)
+	if cookieHeader := req.Header.Get("Cookie"); cookieHeader != "" {
+		// Simple cookie parsing
+		cookiePairs := strings.Split(cookieHeader, ";")
+		for _, pair := range cookiePairs {
+			parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+			if len(parts) == 2 {
+				cookies[parts[0]] = parts[1]
+			}
+		}
+	}
+
+	// Add Property Manager variables to headers for ESI access
+	for key, value := range pmResult.Variables {
+		headers["X-PM-"+key] = value
+	}
+
+	return esi.ProcessContext{
+		BaseURL: fmt.Sprintf("%s://%s", getSchemeFromRequest(req), req.Host),
+		Headers: headers,
+		Cookies: cookies,
+		Depth:   0,
+	}
+}
+
+// getSchemeFromRequest returns the scheme (http/https) for a request
+func getSchemeFromRequest(req *http.Request) string {
+	if req.TLS != nil {
+		return "https"
+	}
+	if scheme := req.Header.Get("X-Forwarded-Proto"); scheme != "" {
+		return scheme
+	}
+	return "http"
+}
+
+// isESIEnabled checks if ESI processing is enabled based on Property Manager result
+func (s *Server) isESIEnabled(pmResult *propertymanager.RuleResult) bool {
+	// Check if ESI behavior was executed
+	for _, behavior := range pmResult.ExecutedBehaviors {
+		if behavior == "esi" {
+			return true
+		}
+	}
+	return false
+}
+
+// processResponseBehaviors processes Property Manager response behaviors
+func (s *Server) processResponseBehaviors(pmResult *propertymanager.RuleResult, html string) *propertymanager.RuleResult {
+	responseResult := &propertymanager.RuleResult{
+		MatchedRules:              pmResult.MatchedRules,
+		ExecutedBehaviors:         pmResult.ExecutedBehaviors,
+		ModifiedHeaders:           make(map[string]string),
+		RemovedHeaders:            []string{},
+		Variables:                 make(map[string]string),
+		Errors:                    []string{},
+		CacheSettings:             make(map[string]interface{}),
+		CompressionSettings:       make(map[string]interface{}),
+		ImageOptimizationSettings: make(map[string]interface{}),
+	}
+
+	// Copy modified headers from request processing
+	for key, value := range pmResult.ModifiedHeaders {
+		responseResult.ModifiedHeaders[key] = value
+	}
+
+	return responseResult
+}
+
 // handleStats returns processing statistics
 func (s *Server) handleStats(c *gin.Context) {
-	stats := s.processor.GetStats()
-	features := s.processor.GetFeatures()
+	var stats interface{}
+	var features interface{}
+	var cache interface{}
+
+	switch s.emulatorType {
+	case "esi":
+		if s.esiProcessor != nil {
+			esiStats := s.esiProcessor.GetStats()
+			stats = gin.H{
+				"requests":  esiStats.Requests,
+				"cacheHits": esiStats.CacheHits,
+				"cacheMiss": esiStats.CacheMiss,
+				"errors":    esiStats.Errors,
+				"totalTime": esiStats.TotalTime,
+			}
+			features = s.esiProcessor.GetFeatures()
+			cache = gin.H{
+				"size":    s.esiProcessor.GetCacheSize(),
+				"enabled": s.esiProcessor.GetFeatures().Include,
+			}
+		}
+	case "property-manager":
+		// Property Manager doesn't have stats yet, but we can add them
+		stats = gin.H{
+			"requests":  0,
+			"cacheHits": 0,
+			"cacheMiss": 0,
+			"errors":    0,
+			"totalTime": 0,
+		}
+		features = []string{"rule-processing", "criteria-evaluation", "behavior-execution"}
+		cache = gin.H{
+			"size":    0,
+			"enabled": false,
+		}
+	default:
+		stats = gin.H{
+			"requests":  0,
+			"cacheHits": 0,
+			"cacheMiss": 0,
+			"errors":    0,
+			"totalTime": 0,
+		}
+		features = []string{}
+		cache = gin.H{
+			"size":    0,
+			"enabled": false,
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"mode":     s.config.Mode,
+		"type":     s.emulatorType,
 		"features": features,
-		"cache": gin.H{
-			"size":    s.processor.GetCacheSize(),
-			"enabled": s.processor.GetFeatures().Include, // Simplified check
-		},
-		"stats": gin.H{
-			"requests":  stats.Requests,
-			"cacheHits": stats.CacheHits,
-			"cacheMiss": stats.CacheMiss,
-			"errors":    stats.Errors,
-			"totalTime": stats.TotalTime,
-		},
+		"cache":    cache,
+		"stats":    stats,
 	})
 }
 
 // handleClearCache clears the fragment cache
 func (s *Server) handleClearCache(c *gin.Context) {
-	s.processor.ClearCache()
+	var stats interface{}
+	var message string
 
-	stats := s.processor.GetStats()
+	switch s.emulatorType {
+	case "esi":
+		if s.esiProcessor != nil {
+			s.esiProcessor.ClearCache()
+			esiStats := s.esiProcessor.GetStats()
+			stats = gin.H{
+				"requests":  esiStats.Requests,
+				"cacheHits": esiStats.CacheHits,
+				"cacheMiss": esiStats.CacheMiss,
+				"errors":    esiStats.Errors,
+				"totalTime": esiStats.TotalTime,
+			}
+			message = "ESI cache cleared"
+		} else {
+			stats = gin.H{
+				"requests":  0,
+				"cacheHits": 0,
+				"cacheMiss": 0,
+				"errors":    0,
+				"totalTime": 0,
+			}
+			message = "No ESI processor available"
+		}
+	case "property-manager":
+		// Property Manager doesn't have cache yet
+		stats = gin.H{
+			"requests":  0,
+			"cacheHits": 0,
+			"cacheMiss": 0,
+			"errors":    0,
+			"totalTime": 0,
+		}
+		message = "Property Manager cache cleared (no cache implemented)"
+	default:
+		stats = gin.H{
+			"requests":  0,
+			"cacheHits": 0,
+			"cacheMiss": 0,
+			"errors":    0,
+			"totalTime": 0,
+		}
+		message = "No processor available"
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Cache cleared",
-		"stats": gin.H{
-			"requests":  stats.Requests,
-			"cacheHits": stats.CacheHits,
-			"cacheMiss": stats.CacheMiss,
-			"errors":    stats.Errors,
-			"totalTime": stats.TotalTime,
-		},
+		"message": message,
+		"stats":   stats,
 	})
 }
 
@@ -597,4 +1001,14 @@ func getMapKeys[K comparable, V any](m map[K]V) []K {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// GetESIProcessor returns the ESI processor
+func (s *Server) GetESIProcessor() *esi.Processor {
+	return s.esiProcessor
+}
+
+// GetPropertyManagerProcessor returns the Property Manager processor
+func (s *Server) GetPropertyManagerProcessor() *propertymanager.PropertyManager {
+	return s.propertyProcessor
 }

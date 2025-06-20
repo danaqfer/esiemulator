@@ -1,141 +1,278 @@
-# ESI Emulator PowerShell Build Script
+# Edge Computing Emulator Suite Build Script
+# PowerShell script for building and running the emulator suite
+
 param(
-    [Parameter(Position=0)]
-    [string]$Command = "help"
+    [string]$Command = "help",
+    [string]$Mode = "esi",
+    [string]$ESIMode = "akamai",
+    [int]$Port = 3000,
+    [switch]$Debug
 )
 
-# Variables
-$BinaryName = "esi-emulator"
-$BuildDir = "build"
-$MainFile = "main.go"
-$ExamplesFile = "cmd/examples/main.go"
+$ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$BuildDir = Join-Path $ProjectRoot "bin"
+$MainPath = Join-Path $ProjectRoot "cmd/edge-emulator/main.go"
 
-# Ensure Go workspaces don't interfere
-$env:GOWORK = "off"
-
-function Build {
-    Write-Host "🔨 Building ESI Emulator..." -ForegroundColor Green
-    if (-not (Test-Path $BuildDir)) {
-        New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
-    }
-    go build -o "$BuildDir\$BinaryName.exe" $MainFile
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅ Build complete: $BuildDir\$BinaryName.exe" -ForegroundColor Green
-    } else {
-        Write-Host "❌ Build failed" -ForegroundColor Red
-    }
+# Create build directory if it doesn't exist
+if (!(Test-Path $BuildDir)) {
+    New-Item -ItemType Directory -Path $BuildDir | Out-Null
 }
 
-function Run {
-    Write-Host "🚀 Running ESI Emulator in development mode..." -ForegroundColor Green
-    go run $MainFile -mode development -debug
-}
-
-function RunFastly {
-    Write-Host "🚀 Running ESI Emulator in Fastly mode..." -ForegroundColor Green
-    go run $MainFile -mode fastly -debug
-}
-
-function RunAkamai {
-    Write-Host "🚀 Running ESI Emulator in Akamai mode..." -ForegroundColor Green
-    go run $MainFile -mode akamai -debug
-}
-
-function RunW3C {
-    Write-Host "🚀 Running ESI Emulator in W3C mode..." -ForegroundColor Green
-    go run $MainFile -mode w3c -debug
-}
-
-function Examples {
-    Write-Host "📚 Running examples..." -ForegroundColor Green
-    go run $ExamplesFile
-}
-
-function Deps {
-    Write-Host "📦 Installing dependencies..." -ForegroundColor Green
-    go mod tidy
-    go mod download
-}
-
-function Test {
-    Write-Host "🧪 Running tests..." -ForegroundColor Green
-    go test -v ./...
-}
-
-function TestCoverage {
-    Write-Host "🧪 Running tests with coverage..." -ForegroundColor Green
-    go test -v -coverprofile=coverage.out ./...
-    go tool cover -html=coverage.out -o coverage.html
-    Write-Host "📊 Coverage report generated: coverage.html" -ForegroundColor Green
-}
-
-function Format {
-    Write-Host "✨ Formatting code..." -ForegroundColor Green
-    go fmt ./...
-}
-
-function Clean {
-    Write-Host "🧹 Cleaning build artifacts..." -ForegroundColor Green
-    if (Test-Path $BuildDir) {
-        Remove-Item -Recurse -Force $BuildDir
-    }
-    if (Test-Path "coverage.out") {
-        Remove-Item "coverage.out"
-    }
-    if (Test-Path "coverage.html") {
-        Remove-Item "coverage.html"
-    }
-}
-
-function RunBinary {
-    Build
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "🚀 Running built binary..." -ForegroundColor Green
-        & ".\$BuildDir\$BinaryName.exe"
-    }
-}
-
-function ShowHelp {
-    Write-Host "ESI Emulator - Available Commands:" -ForegroundColor Yellow
+function Show-Help {
+    Write-Host "Edge Computing Emulator Suite Build Script" -ForegroundColor Green
+    Write-Host "=============================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "  build          Build the application" -ForegroundColor White
-    Write-Host "  run            Run in development mode" -ForegroundColor White
-    Write-Host "  run-fastly     Run in Fastly mode" -ForegroundColor White
-    Write-Host "  run-akamai     Run in Akamai mode" -ForegroundColor White
-    Write-Host "  run-w3c        Run in W3C mode" -ForegroundColor White
-    Write-Host "  examples       Run example programs" -ForegroundColor White
-    Write-Host "  deps           Install dependencies" -ForegroundColor White
-    Write-Host "  test           Run tests" -ForegroundColor White
-    Write-Host "  test-coverage  Run tests with coverage" -ForegroundColor White
-    Write-Host "  format         Format code" -ForegroundColor White
-    Write-Host "  clean          Clean build artifacts" -ForegroundColor White
-    Write-Host "  run-binary     Build and run binary" -ForegroundColor White
-    Write-Host "  help           Show this help" -ForegroundColor White
+    Write-Host "Available Commands:" -ForegroundColor Yellow
+    Write-Host "  build         - Build the application"
+    Write-Host "  test          - Run all tests"
+    Write-Host "  clean         - Clean build artifacts"
+    Write-Host "  run           - Run ESI emulator (Akamai mode)"
+    Write-Host "  run-fastly    - Run ESI emulator (Fastly mode)"
+    Write-Host "  run-w3c       - Run ESI emulator (W3C mode)"
+    Write-Host "  run-property-manager - Run Property Manager emulator"
+    Write-Host "  examples      - Run example programs"
+    Write-Host "  lint          - Run linter checks"
+    Write-Host "  format        - Format code"
+    Write-Host "  coverage      - Run tests with coverage"
+    Write-Host "  help          - Show this help"
+    Write-Host ""
+    Write-Host "Environment Variables:" -ForegroundColor Yellow
+    Write-Host "  EMULATOR_MODE - Set to 'esi' or 'property-manager'"
+    Write-Host "  ESI_MODE      - Set to 'fastly', 'akamai', 'w3c', or 'development'"
+    Write-Host "  PORT          - Server port (default: 3000)"
+    Write-Host "  DEBUG         - Enable debug mode"
     Write-Host ""
     Write-Host "Examples:" -ForegroundColor Yellow
-    Write-Host "  .\build.ps1 build" -ForegroundColor Gray
-    Write-Host "  .\build.ps1 run-fastly" -ForegroundColor Gray
-    Write-Host "  .\build.ps1 examples" -ForegroundColor Gray
-    Write-Host "  `$env:ESI_MODE='akamai'; `$env:PORT='8080'; .\build.ps1 run" -ForegroundColor Gray
+    Write-Host "  .\build.ps1 build"
+    Write-Host "  .\build.ps1 run"
+    Write-Host "  .\build.ps1 run-property-manager"
+    Write-Host "  $env:DEBUG='true'; .\build.ps1 run"
 }
 
-# Execute command
+function Build-Application {
+    Write-Host "Building Edge Computing Emulator Suite..." -ForegroundColor Green
+    
+    $BuildFlags = @()
+    if ($Debug) {
+        $BuildFlags += "-ldflags=-X main.debug=true"
+    }
+    
+    $OutputPath = Join-Path $BuildDir "edge-emulator.exe"
+    
+    Push-Location $ProjectRoot
+    try {
+        $BuildCmd = "go build -o `"$OutputPath`" $($BuildFlags -join ' ') `"$MainPath`""
+        Write-Host "Executing: $BuildCmd" -ForegroundColor Gray
+        Invoke-Expression $BuildCmd
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Build successful! Binary created at: $OutputPath" -ForegroundColor Green
+        } else {
+            Write-Host "Build failed!" -ForegroundColor Red
+            exit 1
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Test-Application {
+    Write-Host "Running tests..." -ForegroundColor Green
+    
+    Push-Location $ProjectRoot
+    try {
+        $TestCmd = "go test -v ./..."
+        Write-Host "Executing: $TestCmd" -ForegroundColor Gray
+        Invoke-Expression $TestCmd
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Tests failed!" -ForegroundColor Red
+            exit 1
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Clean-Build {
+    Write-Host "Cleaning build artifacts..." -ForegroundColor Green
+    
+    if (Test-Path $BuildDir) {
+        Remove-Item -Path $BuildDir -Recurse -Force
+        Write-Host "Build directory cleaned." -ForegroundColor Green
+    }
+    
+    # Clean test artifacts
+    $TestFiles = Get-ChildItem -Path $ProjectRoot -Recurse -Include "*.test", "*.out", "coverage.html"
+    if ($TestFiles) {
+        $TestFiles | Remove-Item -Force
+        Write-Host "Test artifacts cleaned." -ForegroundColor Green
+    }
+}
+
+function Run-ESIEmulator {
+    param([string]$ESIMode = "akamai")
+    
+    Write-Host "Running ESI Emulator in $ESIMode mode..." -ForegroundColor Green
+    
+    $EnvVars = @{
+        "EMULATOR_MODE" = "esi"
+        "ESI_MODE" = $ESIMode
+        "PORT" = $Port
+    }
+    
+    if ($Debug) {
+        $EnvVars["DEBUG"] = "true"
+    }
+    
+    Push-Location $ProjectRoot
+    try {
+        $RunCmd = "go run `"$MainPath`" -mode=esi -esi-mode=$ESIMode -port=$Port"
+        if ($Debug) {
+            $RunCmd += " -debug"
+        }
+        
+        Write-Host "Executing: $RunCmd" -ForegroundColor Gray
+        Write-Host "Environment: $($EnvVars | ConvertTo-Json)" -ForegroundColor Gray
+        
+        # Set environment variables
+        foreach ($key in $EnvVars.Keys) {
+            Set-Item -Path "env:$key" -Value $EnvVars[$key]
+        }
+        
+        Invoke-Expression $RunCmd
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Run-PropertyManagerEmulator {
+    Write-Host "Running Property Manager Emulator..." -ForegroundColor Green
+    
+    $EnvVars = @{
+        "EMULATOR_MODE" = "property-manager"
+        "PORT" = $Port
+    }
+    
+    if ($Debug) {
+        $EnvVars["DEBUG"] = "true"
+    }
+    
+    Push-Location $ProjectRoot
+    try {
+        $RunCmd = "go run `"$MainPath`" -mode=property-manager -port=$Port"
+        if ($Debug) {
+            $RunCmd += " -debug"
+        }
+        
+        Write-Host "Executing: $RunCmd" -ForegroundColor Gray
+        Write-Host "Environment: $($EnvVars | ConvertTo-Json)" -ForegroundColor Gray
+        
+        # Set environment variables
+        foreach ($key in $EnvVars.Keys) {
+            Set-Item -Path "env:$key" -Value $EnvVars[$key]
+        }
+        
+        Invoke-Expression $RunCmd
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Run-Examples {
+    Write-Host "Running examples..." -ForegroundColor Green
+    
+    Push-Location $ProjectRoot
+    try {
+        $ExamplesDir = Join-Path $ProjectRoot "cmd/examples"
+        if (Test-Path $ExamplesDir) {
+            Get-ChildItem -Path $ExamplesDir -Filter "*.go" | ForEach-Object {
+                Write-Host "Running example: $($_.Name)" -ForegroundColor Yellow
+                go run $_.FullName
+            }
+        } else {
+            Write-Host "No examples found in $ExamplesDir" -ForegroundColor Yellow
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Invoke-Lint {
+    Write-Host "Running linter checks..." -ForegroundColor Green
+    
+    Push-Location $ProjectRoot
+    try {
+        # Check if golangci-lint is installed
+        $LintCmd = "golangci-lint run"
+        try {
+            Invoke-Expression $LintCmd
+        }
+        catch {
+            Write-Host "golangci-lint not found, running go vet instead..." -ForegroundColor Yellow
+            go vet ./...
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Format-Code {
+    Write-Host "Formatting code..." -ForegroundColor Green
+    
+    Push-Location $ProjectRoot
+    try {
+        go fmt ./...
+        Write-Host "Code formatting complete." -ForegroundColor Green
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Test-Coverage {
+    Write-Host "Running tests with coverage..." -ForegroundColor Green
+    
+    Push-Location $ProjectRoot
+    try {
+        $CoverageFile = Join-Path $ProjectRoot "coverage.out"
+        $CoverageHTML = Join-Path $ProjectRoot "coverage.html"
+        
+        go test -v -coverprofile=$CoverageFile ./...
+        
+        if (Test-Path $CoverageFile) {
+            go tool cover -html=$CoverageFile -o=$CoverageHTML
+            Write-Host "Coverage report generated: $CoverageHTML" -ForegroundColor Green
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+# Main execution
 switch ($Command.ToLower()) {
-    "build" { Build }
-    "run" { Run }
-    "run-fastly" { RunFastly }
-    "run-akamai" { RunAkamai }
-    "run-w3c" { RunW3C }
-    "examples" { Examples }
-    "deps" { Deps }
-    "test" { Test }
-    "test-coverage" { TestCoverage }
-    "format" { Format }
-    "clean" { Clean }
-    "run-binary" { RunBinary }
-    "help" { ShowHelp }
-    default { 
-        Write-Host "❌ Unknown command: $Command" -ForegroundColor Red
-        Write-Host "Run '.\build.ps1 help' for available commands" -ForegroundColor Yellow
+    "build" { Build-Application }
+    "test" { Test-Application }
+    "clean" { Clean-Build }
+    "run" { Run-ESIEmulator -ESIMode $ESIMode }
+    "run-fastly" { Run-ESIEmulator -ESIMode "fastly" }
+    "run-w3c" { Run-ESIEmulator -ESIMode "w3c" }
+    "run-property-manager" { Run-PropertyManagerEmulator }
+    "examples" { Run-Examples }
+    "lint" { Invoke-Lint }
+    "format" { Format-Code }
+    "coverage" { Test-Coverage }
+    "help" { Show-Help }
+    default {
+        Write-Host "Unknown command: $Command" -ForegroundColor Red
+        Show-Help
+        exit 1
     }
 } 

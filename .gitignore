@@ -35,4 +35,20 @@ ehthumbs.db
 Thumbs.db
 
 # Logs
-*.log 
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Coverage reports
+coverage.html
+coverage.out
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Keep resources tracked
+!resources/ 
