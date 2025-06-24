@@ -1,40 +1,75 @@
 # ESI Container Generator
 
-A Go program that reads JSON configuration files and generates HTML files with ESI (Edge Side Include) embedded code for container tag functionality. This tool translates partner beacon configurations into fire-and-forget ESI includes with `MAXWAIT=0`.
-
-## Overview
-
-The ESI Container Generator takes a JSON configuration file that defines partner beacons (tracking pixels, analytics endpoints, etc.) and converts them into ESI include statements that can be embedded in HTML pages. Each beacon is converted to an `<esi:include>` element with `MAXWAIT=0` for fire-and-forget behavior.
+A Go tool that converts JSON partner beacon configurations into ESI (Edge Side Includes) for server-side execution. This tool filters pixel types and generates separate outputs for server-side and browser-executed pixels.
 
 ## Features
 
-- **JSON Configuration**: Define partner beacons in a structured JSON format
-- **Fire-and-Forget**: All beacons use `MAXWAIT=0` for non-blocking execution
-- **Macro Substitution**: Support for variable substitution in beacon URLs and parameters
-- **Conditional Firing**: Support for conditional beacon firing based on various criteria
-- **Multiple Categories**: Organize beacons by category (analytics, advertising, etc.)
-- **Flexible Output**: Generate complete HTML documents or just ESI fragments
-- **Verbose Logging**: Detailed output for debugging and monitoring
+### ✅ Implemented Features
+
+#### Core Functionality
+- **Pixel Type Filtering**: Converts `dir` type pixels to ESI includes, keeps `frm` and `script` types for browser execution
+- **Fire-and-Forget Execution**: Uses `MAXWAIT=0` for non-blocking pixel firing
+- **Dual Output**: Generates both HTML with ESI includes and JSON for browser-executed pixels
+
+#### Macro Substitution System
+- **Basic Macros**:
+  - `~~r~~` → `$(TIME)` (timestamp)
+  - `~~evid~~` → `$(PMUSER_EVID)` (event ID)
+  - `~~cs~~` → `$(HTTP_COOKIE{consent})` (consent string)
+  - `~~cc~~` → `$(GEO_COUNTRY)` (country code)
+  - `~~uu~~` → `$(PMUSER_UU)` (user ID)
+  - `~~suu~~` → `$(PMUSER_SUU)` (fingerprint ID)
+
+- **Advanced Cookie Macros**:
+  - `~~c~cookieName~~` → `$(HTTP_COOKIE{cookieName})` (simple cookie)
+  - `~~c~cookieName~hpr~salt~~` → `$(PMUSER_COOKIE_HASH_PR_{cookieName}_{salt})` (path + cookie hash)
+  - `~~c~cookieName~hpo~salt~~` → `$(PMUSER_COOKIE_HASH_PO_{cookieName}_{salt})` (cookie + path hash)
+
+- **Decode Macros**:
+  - `~~dl:qs~~` → `$(PMUSER_DECODED_QUERY_STRING)` (full query string decode)
+  - `~~dl:qs~paramName~~` → `$(PMUSER_DECODED_QS_{paramName})` (specific parameter decode)
+
+- **User Variables**:
+  - `~~u1~~` → `$(PMUSER_V1)` (user variable 1)
+  - `~~u2~~` → `$(PMUSER_V2)` (user variable 2)
+  - `~~customvar~~` → `$(PMUSER_CUSTOMVAR)` (custom variable)
+
+#### Advanced Features
+- **Fingerprint Generation**: Creates unique fingerprint IDs based on IP + Accept headers + User-Agent
+- **MD5 Hashing**: Supports cookie value hashing with salt
+- **URL Decoding**: Handles URL-encoded query parameters
+- **ESI Functions**: Generates ESI functions for advanced macro processing
+
+### 🔄 TODO Features (Phase 1)
+
+- [ ] Default value handling (`@` prefix)
+- [ ] GDPR consent checking
+- [ ] GPP (Global Privacy Platform) support
+- [ ] Enhanced error handling for malformed macros
+
+### 🔄 TODO Features (Phase 2)
+
+- [ ] `REQ`, `PCT`, `CAP` pixel property filtering
+- [ ] `CONTINENT_FREQ` continent-specific frequency handling
+- [ ] `FIRE_EXPR` conditional firing expressions
+- [ ] Enhanced pixel validation
+
+### ❌ Skipped Features
+
+- Complex mapping functions (`~~m~mapName~~`)
+- Encoding/decoding levels (`^` prefix)
+- Batching and rotation systems
+- Performance tracking
+- Browser-specific features (3PC detection, etc.)
 
 ## Installation
 
-### Prerequisites
-
-- Go 1.21 or later
-- Access to the edge-computing/emulator-suite repository
-
-### Building
-
 ```bash
-# From the repository root
-go build -o bin/ESIcontainergenerator cmd/ESIcontainergenerator/main.go
-```
-
-### Using Makefile
-
-```bash
-# Build all binaries including ESIcontainergenerator
+# Build the tool
 make build
+
+# Or build directly
+go build -o bin/ESIcontainergenerator cmd/ESIcontainergenerator/main.go
 ```
 
 ## Usage
@@ -42,248 +77,227 @@ make build
 ### Basic Usage
 
 ```bash
-# Generate HTML from JSON configuration
-ESIcontainergenerator -input config.json
+# Convert JSON to HTML with ESI includes
+./bin/ESIcontainergenerator -input partner_beacons.json
 
 # Specify output file
-ESIcontainergenerator -input config.json -output container.html
+./bin/ESIcontainergenerator -input partner_beacons.json -output container.html
+```
 
-# Enable verbose output
-ESIcontainergenerator -input config.json -output container.html -verbose
+### Advanced Usage
+
+```bash
+# Generate both HTML and browser JSON
+./bin/ESIcontainergenerator -input partner_beacons.json \
+  -output container.html \
+  -output-json browser_pixels.json
+
+# Use browser-like ESI variable substitution
+./bin/ESIcontainergenerator -input partner_beacons.json -browser-vars
+
+# Set custom max wait time (default: 0 for fire-and-forget)
+./bin/ESIcontainergenerator -input partner_beacons.json -maxwait 5
 ```
 
 ### Command Line Options
 
-- `-input string`: Input JSON configuration file (required)
-- `-output string`: Output HTML file (optional, defaults to input filename with .html extension)
-- `-verbose`: Enable verbose output
-- `-help`: Show help information
-
-### Example
-
-```bash
-# Generate HTML from example configuration
-ESIcontainergenerator -input example-config.json -output demo-container.html -verbose
-```
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-input` | Input JSON configuration file | (required) |
+| `-output` | Output HTML file | `input_name.html` |
+| `-output-json` | Output JSON file for browser pixels | (none) |
+| `-browser-vars` | Use browser-like ESI variable substitution | `false` |
+| `-maxwait` | Maximum wait time for ESI includes | `0` |
+| `-help` | Show help information | `false` |
 
 ## JSON Configuration Format
 
-### Basic Structure
+### Pixel Properties
 
 ```json
 {
-  "clientId": "client-123",
-  "propertyId": "property-456",
-  "environment": "production",
-  "version": "1.0.0",
-  "beacons": [
+  "pixels": [
     {
-      "id": "beacon1",
-      "name": "Analytics Beacon",
-      "url": "https://analytics.example.com/pixel",
-      "method": "GET",
-      "enabled": true,
-      "category": "analytics",
-      "parameters": {
-        "user_id": "${USER_ID}",
-        "site_id": "${SITE_ID}"
-      }
+      "ID": "unique_pixel_id",
+      "URL": "https://partner.com/pixel.gif?param=~~macro~~",
+      "TYPE": "dir|frm|script",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default",
+      "CONTINENT_FREQ": {
+        "NA": 90,
+        "EU": 85
+      },
+      "FIRE_EXPR": "country == 'US'",
+      "SCRIPT": "console.log('script content');"
     }
-  ],
-  "settings": {
-    "defaultTimeout": 5000,
-    "fireAndForget": true,
-    "maxWait": 0,
-    "enableLogging": true
-  },
-  "macros": {
-    "USER_ID": "12345",
-    "SITE_ID": "example.com"
-  }
+  ]
 }
 ```
 
-### Configuration Fields
+### Property Descriptions
 
-#### Top-Level Fields
+| Property | Type | Description | Default |
+|----------|------|-------------|---------|
+| `ID` | string | Unique pixel identifier | (required) |
+| `URL` | string | Target URL with macro support | (required) |
+| `TYPE` | string | Pixel type: `dir`, `frm`, or `script` | `dir` |
+| `REQ` | boolean | Required flag | `true` |
+| `PCT` | integer | Percentage chance to fire (1-100) | `100` |
+| `CAP` | integer | Capacity limit | `1` |
+| `RC` | string | Rotation category | `default` |
+| `CONTINENT_FREQ` | object | Continent-specific frequency mapping | (none) |
+| `FIRE_EXPR` | string | Conditional firing expression | (none) |
+| `SCRIPT` | string | Script content (for script type) | (none) |
 
-- `clientId` (string): Unique client identifier
-- `propertyId` (string): Property or site identifier
-- `environment` (string): Environment (dev, staging, prod)
-- `version` (string): Configuration version
-- `beacons` (array): Array of partner beacon configurations
-- `settings` (object): Container-wide settings
-- `macros` (object): Macro definitions for variable substitution
+### Pixel Type Behavior
 
-#### Beacon Configuration
+- **`dir`**: Converted to ESI includes for server-side execution
+- **`frm`**: Kept in JSON for browser iframe execution
+- **`script`**: Kept in JSON for browser script execution
 
-- `id` (string): Unique beacon identifier
-- `name` (string): Human-readable beacon name
-- `url` (string): The beacon URL to fire
-- `method` (string): HTTP method (GET, POST, etc.)
-- `enabled` (boolean): Whether this beacon is enabled
-- `category` (string): Beacon category (analytics, advertising, etc.)
-- `description` (string): Description of the beacon
-- `timeout` (integer): Custom timeout in milliseconds
-- `parameters` (object): Query parameters or POST data
-- `headers` (object): Additional HTTP headers
-- `conditions` (object): Conditional firing rules
-- `frequency` (string): Firing frequency (always, once, etc.)
-- `priority` (integer): Priority for firing order
+## Macro Examples
 
-#### Settings Configuration
+### Basic Macros
 
-- `maxConcurrentBeacons` (integer): Maximum concurrent beacon fires
-- `defaultTimeout` (integer): Default timeout in milliseconds
-- `fireAndForget` (boolean): Whether to use fire-and-forget mode
-- `maxWait` (integer): MAXWAIT value for ESI includes
-- `enableLogging` (boolean): Whether to enable logging
-- `enableErrorHandling` (boolean): Whether to handle errors
-- `defaultMethod` (string): Default HTTP method
+```json
+{
+  "URL": "https://example.com/pixel.gif?evid=~~evid~~&time=~~r~~&country=~~cc~~&user=~~uu~~&fingerprint=~~suu~~"
+}
+```
 
-## Generated ESI Output
+Generates:
+```
+https://example.com/pixel.gif?evid=$(PMUSER_EVID)&time=$(TIME)&country=$(GEO_COUNTRY)&user=$(PMUSER_UU)&fingerprint=$(PMUSER_SUU)
+```
 
-The tool generates HTML with ESI includes that look like this:
+### Cookie Macros
 
+```json
+{
+  "URL": "https://example.com/track?cookie=~~c~userid~~&hash=~~c~session~hpr~path~~"
+}
+```
+
+Generates:
+```
+https://example.com/track?cookie=$(HTTP_COOKIE{userid})&hash=$(PMUSER_COOKIE_HASH_PR_{session}_{path})
+```
+
+### Decode Macros
+
+```json
+{
+  "URL": "https://example.com/beacon?full_qs=~~dl:qs~~&campaign=~~dl:qs~utm_campaign~~"
+}
+```
+
+Generates:
+```
+https://example.com/beacon?full_qs=$(PMUSER_DECODED_QUERY_STRING)&campaign=$(PMUSER_DECODED_QS_{utm_campaign})
+```
+
+## Output Files
+
+### HTML Output
+
+The generated HTML file contains:
+- ESI functions for advanced macro processing
+- ESI includes for each `dir` type pixel
+- Fire-and-forget execution with `MAXWAIT=0`
+
+Example:
 ```html
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Container Tag ESI</title>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
+    <title>ESI Container Generated Content</title>
 </head>
 <body>
-    <!-- Container Tag Generated Content -->
-    <!--esi Container Tag Generated ESI -->
-    <!--esi Client: demo-client-123 -->
-    <!--esi Property: demo-property-456 -->
-    <!--esi Environment: development -->
-    <!--esi Generated: 2024-01-15T10:30:00Z -->
-
-    <esi:include src="https://www.google-analytics.com/collect?v=1&tid=UA-123456789-1&cid=demo-user-123&t=pageview&dp=/demo-page&dt=Demo Page - Example.com&uip=192.168.1.100&ua=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" maxwait="0" timeout="5000" onerror="continue" alt="" /> <!-- Beacon: Google Analytics (google-analytics) -->
-
-    <esi:include src="https://www.facebook.com/tr?id=123456789012345&ev=PageView&dl=https://example.com/demo-page&dt=Demo Page - Example.com&uip=192.168.1.100&ua=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" maxwait="0" timeout="5000" onerror="continue" alt="" /> <!-- Beacon: Facebook Pixel (facebook-pixel) -->
-
-    <!-- End Container Tag Content -->
+    <!-- ESI Functions for Advanced Macro Processing -->
+    <esi:function name="generate_suu">
+        <!-- ... -->
+    </esi:function>
+    
+    <!-- Generated ESI Content -->
+    <esi:include src="https://partner1.com/pixel.gif?evid=$(PMUSER_EVID)&time=$(TIME)" maxwait="0" />
+    <esi:include src="https://partner2.com/track?cookie=$(HTTP_COOKIE{userid})" maxwait="0" />
 </body>
 </html>
 ```
 
-## Key Features
+### Browser JSON Output
 
-### Fire-and-Forget Behavior
-
-All generated ESI includes use `MAXWAIT=0` and `onerror="continue"`, which means:
-- Beacons fire asynchronously without blocking the page
-- Failed beacons don't prevent other beacons from firing
-- No tracking of beacon success/failure (as requested)
-
-### Macro Substitution
-
-The tool supports macro substitution in beacon URLs and parameters:
+The browser JSON file contains only `frm` and `script` type pixels for client-side execution:
 
 ```json
 {
-  "macros": {
-    "USER_ID": "12345",
-    "SITE_ID": "example.com"
-  },
-  "beacons": [
+  "pixels": [
     {
-      "url": "https://analytics.example.com/pixel",
-      "parameters": {
-        "user_id": "${USER_ID}",
-        "site_id": "${SITE_ID}"
-      }
+      "ID": "partner6_iframe",
+      "URL": "https://partner6.com/iframe.html?user=~~uu~~&time=~~r~~",
+      "TYPE": "frm",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default"
+    },
+    {
+      "ID": "partner7_script",
+      "URL": "https://partner7.com/script.js",
+      "TYPE": "script",
+      "SCRIPT": "console.log('Partner 7 script loaded'); window.partner7Track('~~evid~~', '~~cc~~');",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default"
     }
   ]
 }
 ```
 
-### Built-in Macros
+## Testing
 
-The tool automatically provides these built-in macros:
-- `${CLIENT_ID}`: The client ID from configuration
-- `${PROPERTY_ID}`: The property ID from configuration
-- `${ENVIRONMENT}`: The environment from configuration
-- `${TIMESTAMP}`: Current Unix timestamp
-- `${RANDOM}`: Current Unix timestamp in nanoseconds
-
-### Conditional Firing
-
-Beacons can be conditionally enabled/disabled:
-
-```json
-{
-  "beacons": [
-    {
-      "id": "geo-specific",
-      "enabled": true,
-      "conditions": {
-        "country": "US",
-        "consent": "required"
-      }
-    }
-  ]
-}
-```
-
-## Example Configuration
-
-See `example-config.json` for a complete example configuration that includes:
-- Google Analytics beacon
-- Facebook Pixel
-- Twitter Pixel
-- LinkedIn Pixel (disabled)
-- Custom analytics endpoint
-
-## Integration with ESI Emulator
-
-The generated HTML can be processed by the ESI emulator to test the beacon firing behavior:
+Run the test suite:
 
 ```bash
-# Start the ESI emulator
-go run cmd/edge-emulator/main.go -mode akamai
-
-# Process the generated HTML
-curl -X POST http://localhost:3000/process \
-  -H "Content-Type: application/json" \
-  -d '{"html": "<esi:include src=\"https://example.com/beacon\" maxwait=\"0\" />"}'
+go test -v ./container_tag.go ./container_tag_test.go
 ```
 
-## Error Handling
+Test with example files:
 
-The tool provides comprehensive error handling:
-- Validates JSON configuration format
-- Checks for required fields
-- Provides detailed error messages
-- Graceful handling of missing optional fields
+```bash
+# Test with basic example
+./bin/ESIcontainergenerator -input example.json
 
-## Performance Considerations
+# Test with advanced example
+./bin/ESIcontainergenerator -input example_advanced.json -output-json browser.json
+```
 
-- **Concurrent Processing**: All beacons fire concurrently due to `MAXWAIT=0`
-- **No Batching**: Each beacon is a separate ESI include
-- **No Pagination**: All enabled beacons are included in a single HTML file
-- **Fire-and-Forget**: No waiting for beacon responses
+## Examples
 
-## Limitations
+See the `example.json` and `example_advanced.json` files for complete examples of the JSON configuration format.
 
-- No tracking of beacon success/failure (by design)
-- No retry logic for failed beacons
-- No batching or pagination of beacons
-- Limited to GET and POST methods
-- Basic conditional logic support
+## Architecture
+
+The tool follows a modular design:
+
+1. **JSON Parsing**: Reads and validates partner beacon configurations
+2. **Pixel Filtering**: Separates `dir` pixels from `frm`/`script` pixels
+3. **Macro Processing**: Converts `~~macro~~` patterns to ESI variables
+4. **ESI Generation**: Creates ESI includes with proper syntax
+5. **Output Generation**: Produces HTML and optional JSON files
 
 ## Contributing
 
-To contribute to the ESI Container Generator:
-
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
+3. Add tests for new functionality
+4. Update documentation
 5. Submit a pull request
 
 ## License
 
-This project is part of the Edge Computing Emulator Suite and follows the same license terms. 
+This project is part of the Edge Computing Emulator Suite. 

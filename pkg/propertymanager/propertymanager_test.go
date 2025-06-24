@@ -499,7 +499,7 @@ func TestProcessRequest_UserAgentCriteria(t *testing.T) {
 <property name="test-property" version="1">
 	<rules>
 		<rule name="test-rule">
-			<criteria name="user_agent" option="contains" value="Mobile"/>
+			<criteria name="user_agent" option="contains" value="iPhone"/>
 			<behaviors>
 				<behavior name="set_response_header">
 					<option name="header_name" value="X-Device"/>

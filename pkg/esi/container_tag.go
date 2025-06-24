@@ -1,507 +1,557 @@
 package esi
 
 import (
-	"encoding/json"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"net/url"
+	"regexp"
 	"strings"
-	"time"
 )
 
-// PartnerBeacon represents a single partner beacon configuration
-type PartnerBeacon struct {
-	ID          string            `json:"id"`          // Unique identifier for the beacon
-	Name        string            `json:"name"`        // Human-readable name
-	URL         string            `json:"url"`         // The beacon URL to fire
-	Method      string            `json:"method"`      // HTTP method (GET, POST, etc.)
-	Headers     map[string]string `json:"headers"`     // Additional headers to send
-	Parameters  map[string]string `json:"parameters"`  // Query parameters or POST data
-	Timeout     int               `json:"timeout"`     // Timeout in milliseconds
-	Enabled     bool              `json:"enabled"`     // Whether this beacon is enabled
-	Conditions  map[string]string `json:"conditions"`  // Conditional firing rules
-	Frequency   string            `json:"frequency"`   // Firing frequency (always, once, etc.)
-	Priority    int               `json:"priority"`    // Priority for firing order
-	Category    string            `json:"category"`    // Beacon category (analytics, advertising, etc.)
-	Description string            `json:"description"` // Description of the beacon
+// ContainerConfig represents the JSON configuration for partner beacons
+type ContainerConfig struct {
+	Pixels []Pixel `json:"pixels"`
 }
 
-// ContainerTagConfig represents the overall container tag configuration
-type ContainerTagConfig struct {
-	ClientID    string            `json:"clientId"`    // Client identifier
-	PropertyID  string            `json:"propertyId"`  // Property identifier
-	Environment string            `json:"environment"` // Environment (dev, staging, prod)
-	Version     string            `json:"version"`     // Configuration version
-	CreatedAt   time.Time         `json:"createdAt"`   // Configuration creation time
-	Beacons     []PartnerBeacon   `json:"beacons"`     // List of partner beacons
-	Settings    ContainerSettings `json:"settings"`    // Container-wide settings
-	Macros      map[string]string `json:"macros"`      // Macro definitions for substitution
+// Pixel represents a single partner beacon configuration
+type Pixel struct {
+	ID             string                 `json:"ID"`
+	URL            string                 `json:"URL"`
+	TYPE           string                 `json:"TYPE"`
+	REQ            bool                   `json:"REQ,omitempty"`
+	PCT            int                    `json:"PCT,omitempty"`
+	CAP            int                    `json:"CAP,omitempty"`
+	RC             string                 `json:"RC,omitempty"`
+	CONTINENT_FREQ map[string]int         `json:"CONTINENT_FREQ,omitempty"`
+	FIRE_EXPR      string                 `json:"FIRE_EXPR,omitempty"`
+	SCRIPT         string                 `json:"SCRIPT,omitempty"`
+	Extra          map[string]interface{} `json:"-"`
 }
 
-// ContainerSettings holds container-wide configuration
-type ContainerSettings struct {
-	MaxConcurrentBeacons int    `json:"maxConcurrentBeacons"` // Maximum concurrent beacon fires
-	DefaultTimeout       int    `json:"defaultTimeout"`       // Default timeout in milliseconds
-	FireAndForget        bool   `json:"fireAndForget"`        // Whether to use fire-and-forget mode
-	MaxWait              int    `json:"maxWait"`              // MAXWAIT value for ESI includes
-	EnableLogging        bool   `json:"enableLogging"`        // Whether to enable logging
-	EnableErrorHandling  bool   `json:"enableErrorHandling"`  // Whether to handle errors
-	DefaultMethod        string `json:"defaultMethod"`        // Default HTTP method
+// ESIConfig represents the configuration for ESI generation
+type ESIConfig struct {
+	BrowserVars bool
+	MaxWait     int
 }
 
-// ContainerTagProcessor handles the conversion of JSON beacon configurations to ESI
-type ContainerTagProcessor struct {
-	config ContainerTagConfig
-	esi    *Processor
-}
+// ProcessContainerConfig processes the JSON configuration and generates ESI includes
+func ProcessContainerConfig(config ContainerConfig, esiConfig ESIConfig) (string, ContainerConfig, error) {
+	var esiIncludes []string
+	var browserPixels []Pixel
 
-// NewContainerTagProcessor creates a new container tag processor
-func NewContainerTagProcessor(config ContainerTagConfig, esiProcessor *Processor) *ContainerTagProcessor {
-	return &ContainerTagProcessor{
-		config: config,
-		esi:    esiProcessor,
-	}
-}
+	// Process each pixel
+	for _, pixel := range config.Pixels {
+		// Set defaults if not provided
+		if pixel.TYPE == "" {
+			pixel.TYPE = "dir"
+		}
+		if pixel.REQ == false {
+			pixel.REQ = true
+		}
+		if pixel.PCT == 0 {
+			pixel.PCT = 100
+		}
+		if pixel.CAP == 0 {
+			pixel.CAP = 1
+		}
+		if pixel.RC == "" {
+			pixel.RC = "default"
+		}
 
-// LoadConfigFromJSON loads a container tag configuration from JSON
-func LoadConfigFromJSON(jsonData []byte) (*ContainerTagConfig, error) {
-	var config ContainerTagConfig
-	if err := json.Unmarshal(jsonData, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse container tag config: %w", err)
-	}
-
-	// Set defaults if not provided
-	if config.Settings.DefaultTimeout == 0 {
-		config.Settings.DefaultTimeout = 5000 // 5 seconds
-	}
-	if config.Settings.MaxWait == 0 {
-		config.Settings.MaxWait = 0 // Fire and forget
-	}
-	if config.Settings.DefaultMethod == "" {
-		config.Settings.DefaultMethod = "GET"
-	}
-	if config.Settings.MaxConcurrentBeacons == 0 {
-		config.Settings.MaxConcurrentBeacons = 10
-	}
-
-	return &config, nil
-}
-
-// GenerateESIFromConfig generates ESI content from the container tag configuration
-func (ctp *ContainerTagProcessor) GenerateESIFromConfig() (string, error) {
-	var esiContent strings.Builder
-
-	// Add ESI comment header
-	esiContent.WriteString("<!--esi Container Tag Generated ESI -->\n")
-	esiContent.WriteString("<!--esi Client: " + ctp.config.ClientID + " -->\n")
-	esiContent.WriteString("<!--esi Property: " + ctp.config.PropertyID + " -->\n")
-	esiContent.WriteString("<!--esi Environment: " + ctp.config.Environment + " -->\n")
-	esiContent.WriteString("<!--esi Generated: " + time.Now().Format(time.RFC3339) + " -->\n\n")
-
-	// Process each beacon
-	for _, beacon := range ctp.config.Beacons {
-		if !beacon.Enabled {
+		// Filter pixels: keep frm and script types for browser execution
+		if pixel.TYPE == "frm" || pixel.TYPE == "script" {
+			browserPixels = append(browserPixels, pixel)
 			continue
 		}
 
-		// Check conditions if any
-		if !ctp.evaluateConditions(beacon.Conditions) {
-			continue
+		// Process dir type pixels for ESI conversion
+		if pixel.TYPE == "dir" {
+			esiInclude, err := generateESIInclude(pixel, esiConfig)
+			if err != nil {
+				return "", ContainerConfig{}, fmt.Errorf("error generating ESI for pixel %s: %w", pixel.ID, err)
+			}
+			esiIncludes = append(esiIncludes, esiInclude)
 		}
-
-		// Generate ESI include for this beacon
-		esiInclude := ctp.generateESIInclude(beacon)
-		esiContent.WriteString(esiInclude)
-		esiContent.WriteString("\n")
 	}
 
-	return esiContent.String(), nil
+	// Generate the ESI content
+	esiContent := generateESIContent(esiIncludes, esiConfig)
+
+	// Create new config with only browser-executed pixels
+	browserConfig := ContainerConfig{
+		Pixels: browserPixels,
+	}
+
+	return esiContent, browserConfig, nil
 }
 
-// generateESIInclude generates an ESI include element for a single beacon
-func (ctp *ContainerTagProcessor) generateESIInclude(beacon PartnerBeacon) string {
-	var include strings.Builder
+// generateESIInclude generates an ESI include for a single pixel
+func generateESIInclude(pixel Pixel, config ESIConfig) (string, error) {
+	// Process URL with macro substitution
+	processedURL, err := processMacros(pixel.URL, config)
+	if err != nil {
+		return "", fmt.Errorf("error processing macros in URL: %w", err)
+	}
 
-	// Start ESI include
-	include.WriteString("<esi:include src=\"")
+	// Generate ESI include with MAXWAIT=0 for fire-and-forget
+	esiInclude := fmt.Sprintf(`<esi:include src="%s" maxwait="%d" />`, processedURL, config.MaxWait)
+
+	return esiInclude, nil
+}
+
+// generateESIContent generates the complete ESI content
+func generateESIContent(includes []string, config ESIConfig) string {
+	var content strings.Builder
+
+	content.WriteString("<!-- ESI Container Generated Content -->\n")
+	content.WriteString("<!-- Fire-and-forget pixels with MAXWAIT=0 -->\n\n")
+
+	for _, include := range includes {
+		content.WriteString(include)
+		content.WriteString("\n")
+	}
+
+	return content.String()
+}
+
+// processMacros processes macro substitution in URLs
+func processMacros(urlStr string, config ESIConfig) (string, error) {
+	macroRegex := regexp.MustCompile(`~~(.*?)~~`)
+
+	processedURL := macroRegex.ReplaceAllStringFunc(urlStr, func(match string) string {
+		macroContent := match[2 : len(match)-2]
+		replacement, err := processMacro(macroContent, config)
+		if err != nil {
+			return match
+		}
+		return replacement
+	})
+
+	return processedURL, nil
+}
+
+// processMacro processes a single macro and returns its replacement
+func processMacro(macro string, config ESIConfig) (string, error) {
+	// Support macros like dl:qs and dl:qs~utm_source
+	if strings.Contains(macro, ":") {
+		parts := strings.SplitN(macro, ":", 2)
+		macroType := parts[0]
+		rest := parts[1]
+		// Rebuild the parts slice as [macroType, rest split by ~...]
+		restParts := strings.Split(rest, "~")
+		allParts := append([]string{macroType}, restParts...)
+		return processMacroParts(allParts, config)
+	}
+	// Otherwise, split by ~ as before
+	parts := strings.Split(macro, "~")
+	return processMacroParts(parts, config)
+}
+
+// Helper to process macro parts
+func processMacroParts(parts []string, config ESIConfig) (string, error) {
+	if len(parts) == 0 {
+		return "", fmt.Errorf("empty macro")
+	}
+	macroType := parts[0]
+	switch macroType {
+	case "r":
+		return "$(TIME)", nil
+	case "evid":
+		return "$(PMUSER_EVID)", nil
+	case "cs":
+		return "$(HTTP_COOKIE{consent})", nil
+	case "cc":
+		return "$(GEO_COUNTRY)", nil
+	case "uu":
+		return "$(PMUSER_UU)", nil
+	case "suu":
+		return "$(PMUSER_SUU)", nil
+	case "c":
+		return processCookieMacro(parts, config)
+	case "dl":
+		return processDecodeMacro(parts, config)
+	default:
+		if strings.HasPrefix(macroType, "u") {
+			userVar := strings.Replace(macroType, "u", "v", 1)
+			return "$(PMUSER_" + strings.ToUpper(userVar) + ")", nil
+		}
+		return "$(PMUSER_" + strings.ToUpper(macroType) + ")", nil
+	}
+}
+
+// processCookieMacro processes cookie-related macros
+func processCookieMacro(parts []string, config ESIConfig) (string, error) {
+	if len(parts) < 2 {
+		return "", fmt.Errorf("cookie macro requires at least cookie name")
+	}
+
+	cookieName := parts[1]
+
+	// Check for hash directives
+	if len(parts) >= 4 {
+		hashType := parts[2]
+		salt := parts[3]
+
+		switch hashType {
+		case "hpr":
+			// Hash: path + cookie value
+			return fmt.Sprintf("$(PMUSER_COOKIE_HASH_PR_{%s}_{%s})", cookieName, salt), nil
+		case "hpo":
+			// Hash: cookie value + path
+			return fmt.Sprintf("$(PMUSER_COOKIE_HASH_PO_{%s}_{%s})", cookieName, salt), nil
+		}
+	}
+
+	// Simple cookie value
+	return "$(HTTP_COOKIE{" + cookieName + "})", nil
+}
+
+// processDecodeMacro processes decode-related macros
+func processDecodeMacro(parts []string, config ESIConfig) (string, error) {
+	if len(parts) < 2 {
+		return "", fmt.Errorf("decode macro requires type")
+	}
+
+	decodeType := parts[1]
+
+	switch decodeType {
+	case "qs":
+		if len(parts) >= 3 {
+			// Specific query parameter
+			paramName := parts[2]
+			return fmt.Sprintf("$(PMUSER_DECODED_QS_{%s})", paramName), nil
+		}
+		// Full query string
+		return "$(PMUSER_DECODED_QUERY_STRING)", nil
+
+	default:
+		return "", fmt.Errorf("unknown decode type: %s", decodeType)
+	}
+}
+
+// GenerateFingerprintID generates a passive fingerprint ID based on IP, Accept headers, and User-Agent
+// This matches the passive fingerprinting approach used in the JavaScript implementation
+func GenerateFingerprintID(ipAddress, acceptHeaders, userAgent string) string {
+	// Combine the three values (same as JavaScript passive fingerprinting)
+	combined := ipAddress + acceptHeaders + userAgent
+
+	// Generate MD5 hash (same as JavaScript implementation)
+	hash := md5.Sum([]byte(combined))
+
+	// Return hex string (32 characters, same as JavaScript)
+	return hex.EncodeToString(hash[:])
+}
+
+// GenerateSimpleFingerprintID generates a simple fingerprint ID based on IP, Accept headers, and User-Agent
+// This is the original implementation for backward compatibility
+func GenerateSimpleFingerprintID(ipAddress, acceptHeaders, userAgent string) string {
+	// Combine the three values
+	combined := ipAddress + acceptHeaders + userAgent
+
+	// Generate MD5 hash
+	hash := md5.Sum([]byte(combined))
+
+	// Return hex string
+	return hex.EncodeToString(hash[:])
+}
+
+// URLDecode decodes a URL-encoded string
+func URLDecode(encoded string) (string, error) {
+	return url.QueryUnescape(encoded)
+}
+
+// GenerateCookieHash generates an MD5 hash for cookie values
+func GenerateCookieHash(cookieValue, salt string, hashType string) string {
+	var combined string
+
+	switch hashType {
+	case "hpr":
+		// path + cookie value
+		combined = salt + cookieValue
+	case "hpo":
+		// cookie value + path
+		combined = cookieValue + salt
+	default:
+		// default to cookie value only
+		combined = cookieValue
+	}
+
+	hash := md5.Sum([]byte(combined))
+	return hex.EncodeToString(hash[:])
+}
+
+// GenerateESIFunctions generates ESI functions for advanced macro processing
+func GenerateESIFunctions() string {
+	return `<!-- ESI Functions for Advanced Macro Processing -->
+
+<esi:function name="generate_suu">
+    <!-- Comprehensive fingerprint generation similar to JavaScript Fingerprint2 -->
+    <esi:assign name="ip" value="$(CLIENT_IP)" />
+    <esi:assign name="ua" value="$(HTTP_USER_AGENT)" />
+    <esi:assign name="accept" value="$(HTTP_ACCEPT)" />
+    <esi:assign name="accept_lang" value="$(HTTP_ACCEPT_LANGUAGE)" />
+    <esi:assign name="accept_enc" value="$(HTTP_ACCEPT_ENCODING)" />
+    <esi:assign name="connection" value="$(HTTP_CONNECTION)" />
+    <esi:assign name="upgrade_insecure" value="$(HTTP_UPGRADE_INSECURE_REQUESTS)" />
+    
+    <!-- Build fingerprint components in order of importance -->
+    <esi:assign name="components" value="" />
+    
+    <esi:choose>
+        <esi:when test="$is_empty($(ip))">
+            <!-- Skip empty IP -->
+        </esi:when>
+        <esi:otherwise>
+            <esi:assign name="components" value="client_ip:$(ip)" />
+        </esi:otherwise>
+    </esi:choose>
+    
+    <esi:choose>
+        <esi:when test="$is_empty($(ua))">
+            <!-- Skip empty User Agent -->
+        </esi:when>
+        <esi:otherwise>
+            <esi:choose>
+                <esi:when test="$is_empty($(components))">
+                    <esi:assign name="components" value="user_agent:$(ua)" />
+                </esi:when>
+                <esi:otherwise>
+                    <esi:assign name="components" value="$(components)~~~user_agent:$(ua)" />
+                </esi:otherwise>
+            </esi:choose>
+        </esi:otherwise>
+    </esi:choose>
+    
+    <esi:choose>
+        <esi:when test="$is_empty($(accept))">
+            <!-- Skip empty Accept -->
+        </esi:when>
+        <esi:otherwise>
+            <esi:choose>
+                <esi:when test="$is_empty($(components))">
+                    <esi:assign name="components" value="accept:$(accept)" />
+                </esi:when>
+                <esi:otherwise>
+                    <esi:assign name="components" value="$(components)~~~accept:$(accept)" />
+                </esi:otherwise>
+            </esi:choose>
+        </esi:otherwise>
+    </esi:choose>
+    
+    <esi:choose>
+        <esi:when test="$is_empty($(accept_lang))">
+            <!-- Skip empty Accept Language -->
+        </esi:when>
+        <esi:otherwise>
+            <esi:choose>
+                <esi:when test="$is_empty($(components))">
+                    <esi:assign name="components" value="accept_language:$(accept_lang)" />
+                </esi:when>
+                <esi:otherwise>
+                    <esi:assign name="components" value="$(components)~~~accept_language:$(accept_lang)" />
+                </esi:otherwise>
+            </esi:choose>
+        </esi:otherwise>
+    </esi:choose>
+    
+    <esi:choose>
+        <esi:when test="$is_empty($(accept_enc))">
+            <!-- Skip empty Accept Encoding -->
+        </esi:when>
+        <esi:otherwise>
+            <esi:choose>
+                <esi:when test="$is_empty($(components))">
+                    <esi:assign name="components" value="accept_encoding:$(accept_enc)" />
+                </esi:when>
+                <esi:otherwise>
+                    <esi:assign name="components" value="$(components)~~~accept_encoding:$(accept_enc)" />
+                </esi:otherwise>
+            </esi:choose>
+        </esi:otherwise>
+    </esi:choose>
+    
+    <esi:choose>
+        <esi:when test="$is_empty($(connection))">
+            <!-- Skip empty Connection -->
+        </esi:when>
+        <esi:otherwise>
+            <esi:choose>
+                <esi:when test="$is_empty($(components))">
+                    <esi:assign name="components" value="connection:$(connection)" />
+                </esi:when>
+                <esi:otherwise>
+                    <esi:assign name="components" value="$(components)~~~connection:$(connection)" />
+                </esi:otherwise>
+            </esi:choose>
+        </esi:otherwise>
+    </esi:choose>
+    
+    <esi:choose>
+        <esi:when test="$is_empty($(upgrade_insecure))">
+            <!-- Skip empty Upgrade Insecure Requests -->
+        </esi:when>
+        <esi:otherwise>
+            <esi:choose>
+                <esi:when test="$is_empty($(components))">
+                    <esi:assign name="components" value="upgrade_insecure_requests:$(upgrade_insecure)" />
+                </esi:when>
+                <esi:otherwise>
+                    <esi:assign name="components" value="$(components)~~~upgrade_insecure_requests:$(upgrade_insecure)" />
+                </esi:otherwise>
+            </esi:choose>
+        </esi:otherwise>
+    </esi:choose>
+    
+    <!-- Generate MD5 hash of the combined components -->
+    <esi:return value="$digest_md5_hex($(components))" />
+</esi:function>
+
+<esi:function name="generate_simple_suu">
+    <!-- Simple fingerprint generation for backward compatibility -->
+    <esi:assign name="ip" value="$(CLIENT_IP)" />
+    <esi:assign name="accept" value="$(HTTP_ACCEPT)" />
+    <esi:assign name="ua" value="$(HTTP_USER_AGENT)" />
+    <esi:assign name="combined" value="$(ip)$(accept)$(ua)" />
+    <esi:return value="$digest_md5_hex($(combined))" />
+</esi:function>
+
+<esi:function name="cookie_hash">
+    <esi:assign name="cookie_name" value="$(ARGS{0})" />
+    <esi:assign name="hash_type" value="$(ARGS{1})" />
+    <esi:assign name="salt" value="$(ARGS{2})" />
+    <esi:assign name="cookie_value" value="$(HTTP_COOKIE{$(cookie_name)})" />
+    
+    <esi:choose>
+        <esi:when test="$(hash_type)=='hpr'">
+            <esi:return value="$digest_md5_hex($(salt)$(cookie_value))" />
+        </esi:when>
+        <esi:when test="$(hash_type)=='hpo'">
+            <esi:return value="$digest_md5_hex($(cookie_value)$(salt))" />
+        </esi:when>
+        <esi:otherwise>
+            <esi:return value="$(cookie_value)" />
+        </esi:otherwise>
+    </esi:choose>
+</esi:function>
+
+<esi:function name="url_decode">
+    <esi:assign name="encoded" value="$(ARGS{0})" />
+    <esi:return value="$url_decode($(encoded))" />
+</esi:function>
+
+<esi:function name="query_param_decode">
+    <esi:assign name="param_name" value="$(ARGS{0})" />
+    <esi:assign name="param_value" value="$(QUERY_STRING{$(param_name)})" />
+    <esi:return value="$url_decode($(param_value))" />
+</esi:function>
+
+<esi:function name="default_value">
+    <esi:assign name="value" value="$(ARGS{0})" />
+    <esi:assign name="default" value="$(ARGS{1})" />
+    <esi:choose>
+        <esi:when test="$is_empty($(value))">
+            <esi:return value="$(default)" />
+        </esi:when>
+        <esi:otherwise>
+            <esi:return value="$(value)" />
+        </esi:otherwise>
+    </esi:choose>
+</esi:function>`
+}
+
+// GenerateESIInclude generates an ESI include tag for a pixel configuration
+func GenerateESIInclude(pixel Pixel, baseURL string, ipAddress, acceptHeaders, userAgent string) string {
+	// Generate fingerprint ID using passive fingerprinting
+	fingerprintID := GenerateFingerprintID(ipAddress, acceptHeaders, userAgent)
 
 	// Build the URL with parameters
-	url := ctp.buildBeaconURL(beacon)
-	include.WriteString(url)
+	url := baseURL + "?" + buildQueryString(pixel, fingerprintID)
 
-	// Add MAXWAIT=0 for fire-and-forget
-	include.WriteString("\" maxwait=\"0\"")
-
-	// Add timeout if specified
-	if beacon.Timeout > 0 {
-		include.WriteString(fmt.Sprintf(" timeout=\"%d\"", beacon.Timeout))
-	} else if ctp.config.Settings.DefaultTimeout > 0 {
-		include.WriteString(fmt.Sprintf(" timeout=\"%d\"", ctp.config.Settings.DefaultTimeout))
-	}
-
-	// Add method if not GET
-	if beacon.Method != "" && beacon.Method != "GET" {
-		include.WriteString(fmt.Sprintf(" method=\"%s\"", beacon.Method))
-	} else if ctp.config.Settings.DefaultMethod != "GET" {
-		include.WriteString(fmt.Sprintf(" method=\"%s\"", ctp.config.Settings.DefaultMethod))
-	}
-
-	// Add onerror="continue" for fire-and-forget
-	include.WriteString(" onerror=\"continue\"")
-
-	// Add alt attribute for fallback
-	include.WriteString(" alt=\"\"")
-
-	// Close the include
-	include.WriteString(" />")
-
-	// Add comment for debugging
-	if ctp.config.Settings.EnableLogging {
-		include.WriteString(fmt.Sprintf(" <!-- Beacon: %s (%s) -->", beacon.Name, beacon.ID))
-	}
-
-	return include.String()
+	return fmt.Sprintf(`<esi:include src="%s" />`, url)
 }
 
-// buildBeaconURL constructs the full URL for a beacon with parameters
-func (ctp *ContainerTagProcessor) buildBeaconURL(beacon PartnerBeacon) string {
-	url := beacon.URL
+// GenerateESIIncludeWithMacros generates an ESI include tag with macro substitution
+func GenerateESIIncludeWithMacros(pixel Pixel, baseURL string, ipAddress, acceptHeaders, userAgent string, macros map[string]string) string {
+	// Generate fingerprint ID using passive fingerprinting
+	fingerprintID := GenerateFingerprintID(ipAddress, acceptHeaders, userAgent)
 
-	// Add query parameters
-	if len(beacon.Parameters) > 0 {
-		params := make([]string, 0, len(beacon.Parameters))
-		for key, value := range beacon.Parameters {
-			// Apply macro substitution
-			substitutedValue := ctp.substituteMacros(value)
-			params = append(params, fmt.Sprintf("%s=%s", key, substitutedValue))
-		}
+	// Apply macro substitution to the URL
+	url := baseURL + "?" + buildQueryStringWithMacros(pixel, fingerprintID, macros)
 
-		separator := "?"
-		if strings.Contains(url, "?") {
-			separator = "&"
-		}
-		url += separator + strings.Join(params, "&")
-	}
-
-	return url
+	return fmt.Sprintf(`<esi:include src="%s" />`, url)
 }
 
-// substituteMacros replaces macro placeholders with their values
-func (ctp *ContainerTagProcessor) substituteMacros(input string) string {
-	result := input
+// buildQueryString builds a query string for a pixel with fingerprint ID
+func buildQueryString(pixel Pixel, fingerprintID string) string {
+	params := make([]string, 0)
 
-	// First, substitute custom macros from configuration
-	for macro, value := range ctp.config.Macros {
-		placeholder := fmt.Sprintf("${%s}", macro)
-		result = strings.ReplaceAll(result, placeholder, value)
+	// Add fingerprint ID
+	if fingerprintID != "" {
+		params = append(params, fmt.Sprintf("suu=%s", fingerprintID))
 	}
 
-	// Add common ESI variable substitutions
-	commonMacros := map[string]string{
-		"CLIENT_ID":   ctp.config.ClientID,
-		"PROPERTY_ID": ctp.config.PropertyID,
-		"ENVIRONMENT": ctp.config.Environment,
-		"TIMESTAMP":   fmt.Sprintf("%d", time.Now().Unix()),
-		"RANDOM":      fmt.Sprintf("%d", time.Now().UnixNano()),
+	// Add pixel ID if available
+	if pixel.ID != "" {
+		params = append(params, fmt.Sprintf("id=%s", pixel.ID))
 	}
 
-	for macro, value := range commonMacros {
-		placeholder := fmt.Sprintf("${%s}", macro)
-		result = strings.ReplaceAll(result, placeholder, value)
+	// Add other pixel parameters
+	if pixel.REQ {
+		params = append(params, "req=1")
+	}
+
+	if pixel.PCT > 0 {
+		params = append(params, fmt.Sprintf("pct=%d", pixel.PCT))
+	}
+
+	if pixel.CAP > 0 {
+		params = append(params, fmt.Sprintf("cap=%d", pixel.CAP))
+	}
+
+	if pixel.RC != "" {
+		params = append(params, fmt.Sprintf("rc=%s", pixel.RC))
+	}
+
+	return strings.Join(params, "&")
+}
+
+// buildQueryStringWithMacros builds a query string with macro substitution
+func buildQueryStringWithMacros(pixel Pixel, fingerprintID string, macros map[string]string) string {
+	params := make([]string, 0)
+
+	// Add fingerprint ID
+	if fingerprintID != "" {
+		params = append(params, fmt.Sprintf("suu=%s", fingerprintID))
+	}
+
+	// Add pixel ID if available
+	if pixel.ID != "" {
+		params = append(params, fmt.Sprintf("id=%s", pixel.ID))
+	}
+
+	// Add other pixel parameters
+	if pixel.REQ {
+		params = append(params, "req=1")
+	}
+
+	if pixel.PCT > 0 {
+		params = append(params, fmt.Sprintf("pct=%d", pixel.PCT))
+	}
+
+	if pixel.CAP > 0 {
+		params = append(params, fmt.Sprintf("cap=%d", pixel.CAP))
+	}
+
+	if pixel.RC != "" {
+		params = append(params, fmt.Sprintf("rc=%s", pixel.RC))
+	}
+
+	// Apply macro substitution to all parameters
+	result := strings.Join(params, "&")
+	for macro, value := range macros {
+		result = strings.ReplaceAll(result, "~~"+macro+"~~", value)
 	}
 
 	return result
-}
-
-// substituteMacrosWithESI replaces macro placeholders with ESI variable expressions
-// This mimics how browser JavaScript would substitute variables
-func (ctp *ContainerTagProcessor) substituteMacrosWithESI(input string) string {
-	result := input
-
-	// First, substitute custom macros from configuration (these are static)
-	for macro, value := range ctp.config.Macros {
-		placeholder := fmt.Sprintf("${%s}", macro)
-		result = strings.ReplaceAll(result, placeholder, value)
-	}
-
-	// Add common static macros
-	commonMacros := map[string]string{
-		"CLIENT_ID":   ctp.config.ClientID,
-		"PROPERTY_ID": ctp.config.PropertyID,
-		"ENVIRONMENT": ctp.config.Environment,
-		"TIMESTAMP":   fmt.Sprintf("%d", time.Now().Unix()),
-		"RANDOM":      fmt.Sprintf("%d", time.Now().UnixNano()),
-	}
-
-	for macro, value := range commonMacros {
-		placeholder := fmt.Sprintf("${%s}", macro)
-		result = strings.ReplaceAll(result, placeholder, value)
-	}
-
-	// Now substitute browser-like variables with ESI expressions
-	browserVariables := map[string]string{
-		"USER_AGENT":       "$(HTTP_USER_AGENT)",
-		"CLIENT_IP":        "$(CLIENT_IP)",
-		"HTTP_HOST":        "$(HTTP_HOST)",
-		"HTTP_REFERER":     "$(HTTP_REFERER)",
-		"REQUEST_METHOD":   "$(REQUEST_METHOD)",
-		"REQUEST_URI":      "$(REQUEST_URI)",
-		"PAGE_URL":         "$(REQUEST_URI)",
-		"PAGE_PATH":        "$(REQUEST_URI)",
-		"PAGE_TITLE":       "$(HTTP_HOST)",
-		"SESSION_ID":       "$(HTTP_COOKIE{session_id})",
-		"USER_ID":          "$(HTTP_COOKIE{user_id})",
-		"REFERRER":         "$(HTTP_REFERER)",
-		"GEO_COUNTRY":      "$(GEO_COUNTRY_CODE)",
-		"GEO_COUNTRY_CODE": "$(GEO_COUNTRY_CODE)",
-		"GEO_COUNTRY_NAME": "$(GEO_COUNTRY_NAME)",
-		"GEO_REGION":       "$(GEO_REGION)",
-		"GEO_CITY":         "$(GEO_CITY)",
-		"BROWSER":          "$(HTTP_USER_AGENT{browser})",
-		"OS":               "$(HTTP_USER_AGENT{os})",
-		"DEVICE_TYPE":      "$(HTTP_USER_AGENT{device})",
-		"LANGUAGE":         "$(HTTP_ACCEPT_LANGUAGE{en})",
-		"SCREEN_WIDTH":     "$(HTTP_COOKIE{screen_width})",
-		"SCREEN_HEIGHT":    "$(HTTP_COOKIE{screen_height})",
-		"TIMEZONE":         "$(HTTP_COOKIE{timezone})",
-		"VIEWPORT_WIDTH":   "$(HTTP_COOKIE{viewport_width})",
-		"VIEWPORT_HEIGHT":  "$(HTTP_COOKIE{viewport_height})",
-		"CONSENT_STRING":   "$(HTTP_COOKIE{consent})",
-		"TCF_STRING":       "$(HTTP_COOKIE{tcf})",
-		"CCPA_STRING":      "$(HTTP_COOKIE{ccpa})",
-		"GDPR_APPLIES":     "$(HTTP_COOKIE{gdpr_applies})",
-		"US_PRIVACY":       "$(HTTP_COOKIE{us_privacy})",
-		"GPP_STRING":       "$(HTTP_COOKIE{gpp})",
-	}
-
-	for macro, esiExpression := range browserVariables {
-		placeholder := fmt.Sprintf("${%s}", macro)
-		result = strings.ReplaceAll(result, placeholder, esiExpression)
-	}
-
-	return result
-}
-
-// GenerateESIFromConfigWithBrowserVariables generates ESI content with browser-like variable substitution
-func (ctp *ContainerTagProcessor) GenerateESIFromConfigWithBrowserVariables() (string, error) {
-	var esiContent strings.Builder
-
-	// Add ESI comment header
-	esiContent.WriteString("<!--esi Container Tag Generated ESI with Browser Variables -->\n")
-	esiContent.WriteString("<!--esi Client: " + ctp.config.ClientID + " -->\n")
-	esiContent.WriteString("<!--esi Property: " + ctp.config.PropertyID + " -->\n")
-	esiContent.WriteString("<!--esi Environment: " + ctp.config.Environment + " -->\n")
-	esiContent.WriteString("<!--esi Generated: " + time.Now().Format(time.RFC3339) + " -->\n\n")
-
-	// Add ESI vars block for browser-like variables
-	esiContent.WriteString("<esi:vars>\n")
-	esiContent.WriteString("    <!-- Browser-like variables that would normally be set by JavaScript -->\n")
-	esiContent.WriteString("    <!-- These will be populated by the ESI processor at runtime -->\n")
-	esiContent.WriteString("</esi:vars>\n\n")
-
-	// Process each beacon
-	for _, beacon := range ctp.config.Beacons {
-		if !beacon.Enabled {
-			continue
-		}
-
-		// Check conditions if any
-		if !ctp.evaluateConditions(beacon.Conditions) {
-			continue
-		}
-
-		// Generate ESI include for this beacon with browser variables
-		esiInclude := ctp.generateESIIncludeWithBrowserVariables(beacon)
-		esiContent.WriteString(esiInclude)
-		esiContent.WriteString("\n")
-	}
-
-	return esiContent.String(), nil
-}
-
-// generateESIIncludeWithBrowserVariables generates an ESI include element with browser-like variable substitution
-func (ctp *ContainerTagProcessor) generateESIIncludeWithBrowserVariables(beacon PartnerBeacon) string {
-	var include strings.Builder
-
-	// Start ESI include
-	include.WriteString("<esi:include src=\"")
-
-	// Build the URL with parameters using browser-like variable substitution
-	url := ctp.buildBeaconURLWithBrowserVariables(beacon)
-	include.WriteString(url)
-
-	// Add MAXWAIT=0 for fire-and-forget
-	include.WriteString("\" maxwait=\"0\"")
-
-	// Add timeout if specified
-	if beacon.Timeout > 0 {
-		include.WriteString(fmt.Sprintf(" timeout=\"%d\"", beacon.Timeout))
-	} else if ctp.config.Settings.DefaultTimeout > 0 {
-		include.WriteString(fmt.Sprintf(" timeout=\"%d\"", ctp.config.Settings.DefaultTimeout))
-	}
-
-	// Add method if not GET
-	if beacon.Method != "" && beacon.Method != "GET" {
-		include.WriteString(fmt.Sprintf(" method=\"%s\"", beacon.Method))
-	} else if ctp.config.Settings.DefaultMethod != "GET" {
-		include.WriteString(fmt.Sprintf(" method=\"%s\"", ctp.config.Settings.DefaultMethod))
-	}
-
-	// Add onerror="continue" for fire-and-forget
-	include.WriteString(" onerror=\"continue\"")
-
-	// Add alt attribute for fallback
-	include.WriteString(" alt=\"\"")
-
-	// Close the include
-	include.WriteString(" />")
-
-	// Add comment for debugging
-	if ctp.config.Settings.EnableLogging {
-		include.WriteString(fmt.Sprintf(" <!-- Beacon: %s (%s) -->", beacon.Name, beacon.ID))
-	}
-
-	return include.String()
-}
-
-// buildBeaconURLWithBrowserVariables constructs the full URL with browser-like variable substitution
-func (ctp *ContainerTagProcessor) buildBeaconURLWithBrowserVariables(beacon PartnerBeacon) string {
-	url := beacon.URL
-
-	// Add query parameters
-	if len(beacon.Parameters) > 0 {
-		params := make([]string, 0, len(beacon.Parameters))
-		for key, value := range beacon.Parameters {
-			// Apply browser-like macro substitution
-			substitutedValue := ctp.substituteMacrosWithESI(value)
-			params = append(params, fmt.Sprintf("%s=%s", key, substitutedValue))
-		}
-
-		separator := "?"
-		if strings.Contains(url, "?") {
-			separator = "&"
-		}
-		url += separator + strings.Join(params, "&")
-	}
-
-	return url
-}
-
-// GenerateCompleteESIHTML generates a complete HTML document with ESI includes
-func (ctp *ContainerTagProcessor) GenerateCompleteESIHTML() (string, error) {
-	esiContent, err := ctp.GenerateESIFromConfig()
-	if err != nil {
-		return "", err
-	}
-
-	var html strings.Builder
-
-	html.WriteString("<!DOCTYPE html>\n")
-	html.WriteString("<html>\n")
-	html.WriteString("<head>\n")
-	html.WriteString("    <title>Container Tag ESI</title>\n")
-	html.WriteString("    <meta charset=\"utf-8\">\n")
-	html.WriteString("</head>\n")
-	html.WriteString("<body>\n")
-	html.WriteString("    <!-- Container Tag Generated Content -->\n")
-	html.WriteString("    " + esiContent + "\n")
-	html.WriteString("    <!-- End Container Tag Content -->\n")
-	html.WriteString("</body>\n")
-	html.WriteString("</html>")
-
-	return html.String(), nil
-}
-
-// GenerateCompleteESIHTMLWithBrowserVariables generates a complete HTML document with ESI includes and browser variables
-func (ctp *ContainerTagProcessor) GenerateCompleteESIHTMLWithBrowserVariables() (string, error) {
-	esiContent, err := ctp.GenerateESIFromConfigWithBrowserVariables()
-	if err != nil {
-		return "", err
-	}
-
-	var html strings.Builder
-
-	html.WriteString("<!DOCTYPE html>\n")
-	html.WriteString("<html>\n")
-	html.WriteString("<head>\n")
-	html.WriteString("    <title>Container Tag ESI with Browser Variables</title>\n")
-	html.WriteString("    <meta charset=\"utf-8\">\n")
-	html.WriteString("</head>\n")
-	html.WriteString("<body>\n")
-	html.WriteString("    <!-- Container Tag Generated Content with Browser Variables -->\n")
-	html.WriteString("    " + esiContent + "\n")
-	html.WriteString("    <!-- End Container Tag Content -->\n")
-	html.WriteString("</body>\n")
-	html.WriteString("</html>")
-
-	return html.String(), nil
-}
-
-// ProcessContainerTagESI processes ESI content that contains container tag includes
-func (ctp *ContainerTagProcessor) ProcessContainerTagESI(esiContent string, context ProcessContext) (string, error) {
-	// Use the existing ESI processor to handle the includes
-	return ctp.esi.Process(esiContent, context)
-}
-
-// GetBeaconStats returns statistics about the beacons in the configuration
-func (ctp *ContainerTagProcessor) GetBeaconStats() map[string]interface{} {
-	totalBeacons := len(ctp.config.Beacons)
-	enabledBeacons := 0
-	categories := make(map[string]int)
-
-	for _, beacon := range ctp.config.Beacons {
-		if beacon.Enabled {
-			enabledBeacons++
-		}
-		if beacon.Category != "" {
-			categories[beacon.Category]++
-		}
-	}
-
-	return map[string]interface{}{
-		"totalBeacons":    totalBeacons,
-		"enabledBeacons":  enabledBeacons,
-		"disabledBeacons": totalBeacons - enabledBeacons,
-		"categories":      categories,
-		"clientId":        ctp.config.ClientID,
-		"propertyId":      ctp.config.PropertyID,
-		"environment":     ctp.config.Environment,
-		"version":         ctp.config.Version,
-	}
-}
-
-// evaluateConditions checks if beacon conditions are met
-func (ctp *ContainerTagProcessor) evaluateConditions(conditions map[string]string) bool {
-	if len(conditions) == 0 {
-		return true // No conditions means always fire
-	}
-
-	// For now, implement basic condition evaluation
-	// This could be expanded to support more complex logic
-	for condition, value := range conditions {
-		switch condition {
-		case "country":
-			// Example: only fire for specific countries
-			// This would need to be implemented with actual geo-detection
-			if value != "" {
-				// For now, assume condition is met
-				// In a real implementation, you'd check against actual geo data
-			}
-		case "consent":
-			// Example: only fire if user has given consent
-			if value == "required" {
-				// Check consent status
-				// For now, assume consent is given
-			}
-		case "frequency":
-			// Example: control firing frequency
-			switch value {
-			case "once":
-				// Check if already fired in this session
-				// For now, assume it's the first time
-			case "always":
-				// Always fire
-			}
-		}
-	}
-
-	return true // For now, assume all conditions are met
 }

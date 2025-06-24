@@ -1,0 +1,104 @@
+{
+  "pixels": [
+    {
+      "ID": "partner1_direct",
+      "URL": "https://partner1.com/pixel.gif?evid=~~evid~~&time=~~r~~&country=~~cc~~&user=~~uu~~&fingerprint=~~suu~~",
+      "TYPE": "dir",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default"
+    },
+    {
+      "ID": "partner2_cookie_hash",
+      "URL": "https://partner2.com/track?cookie_hash=~~c~userid~hpr~path~~&cookie_simple=~~c~sessionid~~",
+      "TYPE": "dir",
+      "REQ": true,
+      "PCT": 80,
+      "CAP": 1,
+      "RC": "default"
+    },
+    {
+      "ID": "partner3_decode",
+      "URL": "https://partner3.com/beacon?decoded_qs=~~dl:qs~~&param=~~dl:qs~utm_source~~",
+      "TYPE": "dir",
+      "REQ": false,
+      "PCT": 50,
+      "CAP": 2,
+      "RC": "analytics"
+    },
+    {
+      "ID": "partner4_user_vars",
+      "URL": "https://partner4.com/pixel?var1=~~u1~~&var2=~~u2~~&custom=~~customvar~~",
+      "TYPE": "dir",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default"
+    },
+    {
+      "ID": "partner5_continent_freq",
+      "URL": "https://partner5.com/track?data=~~evid~~",
+      "TYPE": "dir",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default",
+      "CONTINENT_FREQ": {
+        "NA": 90,
+        "EU": 85,
+        "AS": 70,
+        "AF": 60,
+        "SA": 75,
+        "OC": 80
+      }
+    },
+    {
+      "ID": "partner6_iframe",
+      "URL": "https://partner6.com/iframe.html?user=~~uu~~&time=~~r~~",
+      "TYPE": "frm",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default"
+    },
+    {
+      "ID": "partner7_script",
+      "URL": "https://partner7.com/script.js",
+      "TYPE": "script",
+      "SCRIPT": "console.log('Partner 7 script loaded'); window.partner7Track('~~evid~~', '~~cc~~');",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default"
+    },
+    {
+      "ID": "partner8_conditional",
+      "URL": "https://partner8.com/pixel?conditional=~~evid~~",
+      "TYPE": "dir",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default",
+      "FIRE_EXPR": "country == 'US' && user_type == 'premium'"
+    },
+    {
+      "ID": "partner9_complex_cookie",
+      "URL": "https://partner9.com/track?hash1=~~c~userid~hpo~domain~~&hash2=~~c~session~hpr~path~~",
+      "TYPE": "dir",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "default"
+    },
+    {
+      "ID": "partner10_mixed_decode",
+      "URL": "https://partner10.com/beacon?full_qs=~~dl:qs~~&campaign=~~dl:qs~utm_campaign~~&source=~~dl:qs~utm_source~~",
+      "TYPE": "dir",
+      "REQ": true,
+      "PCT": 100,
+      "CAP": 1,
+      "RC": "marketing"
+    }
+  ]
+} 

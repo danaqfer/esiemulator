@@ -6,330 +6,187 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/edge-computing/emulator-suite/pkg/esi"
 )
 
-// Command line flags
-var (
-	inputFile   = flag.String("input", "", "Input JSON configuration file (required)")
-	outputFile  = flag.String("output", "", "Output HTML file (optional, defaults to input filename with .html extension)")
-	verbose     = flag.Bool("verbose", false, "Enable verbose output")
-	browserVars = flag.Bool("browser-vars", false, "Use browser-like ESI variable substitution (default: static macros only)")
-	help        = flag.Bool("help", false, "Show help information")
-)
-
-// Example configuration structure for demonstration
-type ExampleConfig struct {
-	ClientID    string                `json:"clientId"`
-	PropertyID  string                `json:"propertyId"`
-	Environment string                `json:"environment"`
-	Version     string                `json:"version"`
-	Beacons     []esi.PartnerBeacon   `json:"beacons"`
-	Settings    esi.ContainerSettings `json:"settings"`
-	Macros      map[string]string     `json:"macros"`
-}
-
 func main() {
+	// Define command line flags
+	inputFile := flag.String("input", "", "Input JSON configuration file")
+	outputFile := flag.String("output", "", "Output HTML file (default: input_name.html)")
+	browserVars := flag.Bool("browser-vars", false, "Use browser-like ESI variable substitution")
+	maxWait := flag.Int("maxwait", 0, "Maximum wait time for ESI includes (default: 0 for fire-and-forget)")
+	outputJSON := flag.String("output-json", "", "Output JSON file for browser-executed pixels (frm/script types)")
+	showHelp := flag.Bool("help", false, "Show help information")
+
 	flag.Parse()
 
-	if *help {
+	if *showHelp {
 		printHelp()
 		return
 	}
 
+	// Validate required input file
 	if *inputFile == "" {
 		log.Fatal("Error: Input file is required. Use -input flag to specify the JSON configuration file.")
 	}
 
-	// Read and parse the JSON configuration file
-	config, err := readConfigFile(*inputFile)
+	// Read input JSON file
+	inputData, err := ioutil.ReadFile(*inputFile)
 	if err != nil {
-		log.Fatalf("Error reading configuration file: %v", err)
+		log.Fatalf("Error reading input file: %v", err)
 	}
 
-	// Determine output filename
-	outputFilename := *outputFile
-	if outputFilename == "" {
-		// Generate output filename based on input filename
+	// Parse JSON configuration
+	var config esi.ContainerConfig
+	if err := json.Unmarshal(inputData, &config); err != nil {
+		log.Fatalf("Error parsing JSON: %v", err)
+	}
+
+	// Create ESI configuration
+	esiConfig := esi.ESIConfig{
+		BrowserVars: *browserVars,
+		MaxWait:     *maxWait,
+	}
+
+	// Process the configuration
+	esiContent, browserConfig, err := esi.ProcessContainerConfig(config, esiConfig)
+	if err != nil {
+		log.Fatalf("Error processing configuration: %v", err)
+	}
+
+	// Generate output filename if not provided
+	if *outputFile == "" {
 		baseName := strings.TrimSuffix(filepath.Base(*inputFile), filepath.Ext(*inputFile))
-		outputFilename = baseName + ".html"
+		*outputFile = baseName + ".html"
 	}
 
-	// Generate the ESI HTML content
-	htmlContent, err := generateESIHTML(config)
-	if err != nil {
-		log.Fatalf("Error generating ESI HTML: %v", err)
+	// Generate the complete HTML content
+	htmlContent := generateHTMLContent(esiContent, esiConfig)
+
+	// Write HTML output
+	if err := ioutil.WriteFile(*outputFile, []byte(htmlContent), 0644); err != nil {
+		log.Fatalf("Error writing HTML output file: %v", err)
 	}
 
-	// Write the output file
-	err = writeOutputFile(outputFilename, htmlContent)
-	if err != nil {
-		log.Fatalf("Error writing output file: %v", err)
-	}
+	fmt.Printf("✅ Generated HTML file: %s\n", *outputFile)
+	fmt.Printf("📊 Processed %d pixels:\n", len(config.Pixels))
 
-	if *verbose {
-		printStats(config)
-	}
-
-	fmt.Printf("✅ Successfully generated ESI container HTML: %s\n", outputFilename)
-	fmt.Printf("📊 Processed %d beacons (%d enabled)\n", len(config.Beacons), countEnabledBeacons(config.Beacons))
-}
-
-func readConfigFile(filename string) (*esi.ContainerTagConfig, error) {
-	if *verbose {
-		fmt.Printf("📖 Reading configuration file: %s\n", filename)
-	}
-
-	// Read the file
-	data, err := ioutil.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
-	}
-
-	// Try to parse as ContainerTagConfig first
-	var config esi.ContainerTagConfig
-	err = json.Unmarshal(data, &config)
-	if err == nil {
-		// Successfully parsed as ContainerTagConfig
-		setDefaults(&config)
-		return &config, nil
-	}
-
-	// If that fails, try parsing as ExampleConfig and convert
-	if *verbose {
-		fmt.Printf("⚠️  Failed to parse as ContainerTagConfig, trying ExampleConfig format...\n")
-	}
-
-	var exampleConfig ExampleConfig
-	err = json.Unmarshal(data, &exampleConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
-	}
-
-	// Convert ExampleConfig to ContainerTagConfig
-	config = esi.ContainerTagConfig{
-		ClientID:    exampleConfig.ClientID,
-		PropertyID:  exampleConfig.PropertyID,
-		Environment: exampleConfig.Environment,
-		Version:     exampleConfig.Version,
-		CreatedAt:   time.Now(),
-		Beacons:     exampleConfig.Beacons,
-		Settings:    exampleConfig.Settings,
-		Macros:      exampleConfig.Macros,
-	}
-
-	setDefaults(&config)
-	return &config, nil
-}
-
-func setDefaults(config *esi.ContainerTagConfig) {
-	// Set default values if not provided
-	if config.Settings.DefaultTimeout == 0 {
-		config.Settings.DefaultTimeout = 5000 // 5 seconds
-	}
-	if config.Settings.MaxWait == 0 {
-		config.Settings.MaxWait = 0 // Fire and forget
-	}
-	if config.Settings.DefaultMethod == "" {
-		config.Settings.DefaultMethod = "GET"
-	}
-	if config.Settings.MaxConcurrentBeacons == 0 {
-		config.Settings.MaxConcurrentBeacons = 10
-	}
-	if config.CreatedAt.IsZero() {
-		config.CreatedAt = time.Now()
-	}
-}
-
-func generateESIHTML(config *esi.ContainerTagConfig) (string, error) {
-	if *verbose {
-		fmt.Printf("🔧 Generating ESI HTML for client: %s, property: %s\n", config.ClientID, config.PropertyID)
-		if *browserVars {
-			fmt.Printf("🌐 Using browser-like ESI variable substitution\n")
-		} else {
-			fmt.Printf("📝 Using static macro substitution only\n")
+	// Count pixel types
+	dirCount := 0
+	frmCount := 0
+	scriptCount := 0
+	for _, pixel := range config.Pixels {
+		switch pixel.TYPE {
+		case "dir":
+			dirCount++
+		case "frm":
+			frmCount++
+		case "script":
+			scriptCount++
 		}
 	}
 
-	// Create ESI processor
-	esiProcessor := esi.NewProcessor(esi.Config{
-		Mode:        "akamai",
-		Debug:       *verbose,
-		MaxIncludes: 256,
-		MaxDepth:    5,
-		Cache: esi.CacheConfig{
-			Enabled: true,
-			TTL:     300,
-		},
-	})
+	fmt.Printf("   - %d 'dir' pixels → ESI includes\n", dirCount)
+	fmt.Printf("   - %d 'frm' pixels → Browser execution\n", frmCount)
+	fmt.Printf("   - %d 'script' pixels → Browser execution\n", scriptCount)
 
-	// Create container tag processor
-	ctp := esi.NewContainerTagProcessor(*config, esiProcessor)
-
-	var htmlContent string
-	var err error
-
-	// Choose generation method based on browser-vars flag
-	if *browserVars {
-		// Generate HTML with ESI variable expressions that will be resolved at runtime
-		htmlContent, err = ctp.GenerateCompleteESIHTMLWithBrowserVariables()
-	} else {
-		// Generate HTML with static macro substitution only
-		htmlContent, err = ctp.GenerateCompleteESIHTML()
+	// Generate browser JSON file if requested
+	if *outputJSON != "" {
+		if err := generateBrowserJSON(browserConfig, *outputJSON); err != nil {
+			log.Fatalf("Error writing browser JSON file: %v", err)
+		}
+		fmt.Printf("✅ Generated browser JSON file: %s\n", *outputJSON)
+		fmt.Printf("📋 Browser JSON contains %d pixels for client-side execution\n", len(browserConfig.Pixels))
 	}
 
-	if err != nil {
-		return "", fmt.Errorf("failed to generate ESI HTML: %w", err)
-	}
-
-	return htmlContent, nil
+	// Show configuration details
+	fmt.Printf("\n🔧 Configuration:\n")
+	fmt.Printf("   - Browser variables: %t\n", esiConfig.BrowserVars)
+	fmt.Printf("   - Max wait time: %d\n", esiConfig.MaxWait)
+	fmt.Printf("   - Fire-and-forget: %t\n", esiConfig.MaxWait == 0)
 }
 
-func writeOutputFile(filename string, content string) error {
-	if *verbose {
-		fmt.Printf("💾 Writing output file: %s\n", filename)
-	}
+func generateHTMLContent(esiContent string, config esi.ESIConfig) string {
+	var html strings.Builder
 
-	// Create directory if it doesn't exist
-	dir := filepath.Dir(filename)
-	if dir != "." && dir != "" {
-		err := os.MkdirAll(dir, 0755)
-		if err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", dir, err)
-		}
-	}
+	html.WriteString("<!DOCTYPE html>\n")
+	html.WriteString("<html>\n")
+	html.WriteString("<head>\n")
+	html.WriteString("    <meta charset=\"UTF-8\">\n")
+	html.WriteString("    <title>ESI Container Generated Content</title>\n")
+	html.WriteString("</head>\n")
+	html.WriteString("<body>\n")
+	html.WriteString("    <!-- ESI Functions for Advanced Macro Processing -->\n")
+	html.WriteString(esi.GenerateESIFunctions())
+	html.WriteString("\n\n")
+	html.WriteString("    <!-- Generated ESI Content -->\n")
+	html.WriteString(esiContent)
+	html.WriteString("\n</body>\n")
+	html.WriteString("</html>\n")
 
-	// Write the file
-	err := ioutil.WriteFile(filename, []byte(content), 0644)
+	return html.String()
+}
+
+func generateBrowserJSON(config esi.ContainerConfig, outputFile string) error {
+	// Convert to JSON
+	jsonData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to write file %s: %w", filename, err)
+		return fmt.Errorf("error marshaling browser config to JSON: %w", err)
+	}
+
+	// Write to file
+	if err := ioutil.WriteFile(outputFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("error writing browser JSON file: %w", err)
 	}
 
 	return nil
-}
-
-func countEnabledBeacons(beacons []esi.PartnerBeacon) int {
-	count := 0
-	for _, beacon := range beacons {
-		if beacon.Enabled {
-			count++
-		}
-	}
-	return count
-}
-
-func printStats(config *esi.ContainerTagConfig) {
-	fmt.Println("\n📊 Configuration Statistics:")
-	fmt.Printf("   Client ID: %s\n", config.ClientID)
-	fmt.Printf("   Property ID: %s\n", config.PropertyID)
-	fmt.Printf("   Environment: %s\n", config.Environment)
-	fmt.Printf("   Version: %s\n", config.Version)
-	fmt.Printf("   Total Beacons: %d\n", len(config.Beacons))
-	fmt.Printf("   Enabled Beacons: %d\n", countEnabledBeacons(config.Beacons))
-	fmt.Printf("   Default Timeout: %dms\n", config.Settings.DefaultTimeout)
-	fmt.Printf("   Max Wait: %dms\n", config.Settings.MaxWait)
-	fmt.Printf("   Fire and Forget: %t\n", config.Settings.FireAndForget)
-	fmt.Printf("   Macros Defined: %d\n", len(config.Macros))
-
-	// Count beacons by category
-	categories := make(map[string]int)
-	for _, beacon := range config.Beacons {
-		if beacon.Category != "" {
-			categories[beacon.Category]++
-		}
-	}
-
-	if len(categories) > 0 {
-		fmt.Println("   Beacon Categories:")
-		for category, count := range categories {
-			fmt.Printf("     %s: %d\n", category, count)
-		}
-	}
-
-	if len(config.Macros) > 0 {
-		fmt.Println("   Macros:")
-		for macro, value := range config.Macros {
-			fmt.Printf("     ${%s}: %s\n", macro, value)
-		}
-	}
 }
 
 func printHelp() {
 	fmt.Println("ESI Container Generator")
 	fmt.Println("=======================")
 	fmt.Println()
-	fmt.Println("Generates HTML files with ESI embedded code from JSON configuration files.")
+	fmt.Println("Converts JSON partner beacon configurations into ESI includes for server-side execution.")
+	fmt.Println("Filters 'frm' and 'script' type pixels for browser execution.")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  ESIcontainergenerator -input <config.json> [-output <output.html>] [-verbose] [-browser-vars]")
+	fmt.Println("  ESIcontainergenerator -input config.json [options]")
 	fmt.Println()
-	fmt.Println("Flags:")
+	fmt.Println("Required Flags:")
 	fmt.Println("  -input string")
-	fmt.Println("        Input JSON configuration file (required)")
+	fmt.Println("        Input JSON configuration file")
+	fmt.Println()
+	fmt.Println("Optional Flags:")
 	fmt.Println("  -output string")
-	fmt.Println("        Output HTML file (optional, defaults to input filename with .html extension)")
-	fmt.Println("  -verbose")
-	fmt.Println("        Enable verbose output")
+	fmt.Println("        Output HTML file (default: input_name.html)")
+	fmt.Println("  -output-json string")
+	fmt.Println("        Output JSON file for browser-executed pixels (frm/script types)")
 	fmt.Println("  -browser-vars")
-	fmt.Println("        Use browser-like ESI variable substitution (default: static macros only)")
-	fmt.Println("        When enabled, generates ESI expressions like $(HTTP_USER_AGENT) that are")
-	fmt.Println("        resolved at runtime by the ESI processor for each browser request.")
+	fmt.Println("        Use browser-like ESI variable substitution")
+	fmt.Println("  -maxwait int")
+	fmt.Println("        Maximum wait time for ESI includes (default: 0 for fire-and-forget)")
 	fmt.Println("  -help")
 	fmt.Println("        Show this help information")
 	fmt.Println()
 	fmt.Println("Examples:")
-	fmt.Println("  ESIcontainergenerator -input beacon-config.json -output container.html -verbose")
-	fmt.Println("  ESIcontainergenerator -input beacon-config.json -browser-vars -output dynamic-container.html")
+	fmt.Println("  # Basic conversion")
+	fmt.Println("  ESIcontainergenerator -input partner_beacons.json")
 	fmt.Println()
-	fmt.Println("Variable Substitution Modes:")
-	fmt.Println("  Static Mode (default):")
-	fmt.Println("    - Substitutes only static macros from JSON configuration")
-	fmt.Println("    - All values are resolved at generation time")
-	fmt.Println("    - Example: ${USER_ID} -> 12345")
+	fmt.Println("  # With browser JSON output")
+	fmt.Println("  ESIcontainergenerator -input partner_beacons.json -output-json browser_pixels.json")
 	fmt.Println()
-	fmt.Println("  Browser Variables Mode (-browser-vars):")
-	fmt.Println("    - Generates ESI expressions for dynamic browser data")
-	fmt.Println("    - Variables are resolved at runtime by ESI processor")
-	fmt.Println("    - Example: ${USER_AGENT} -> $(HTTP_USER_AGENT)")
-	fmt.Println("    - Example: ${CLIENT_IP} -> $(CLIENT_IP)")
-	fmt.Println("    - Example: ${PAGE_URL} -> $(REQUEST_URI)")
+	fmt.Println("  # With browser variables")
+	fmt.Println("  ESIcontainergenerator -input partner_beacons.json -browser-vars")
 	fmt.Println()
-	fmt.Println("JSON Configuration Format:")
-	fmt.Println("  {")
-	fmt.Println("    \"clientId\": \"client-123\",")
-	fmt.Println("    \"propertyId\": \"property-456\",")
-	fmt.Println("    \"environment\": \"production\",")
-	fmt.Println("    \"version\": \"1.0.0\",")
-	fmt.Println("    \"beacons\": [")
-	fmt.Println("      {")
-	fmt.Println("        \"id\": \"beacon1\",")
-	fmt.Println("        \"name\": \"Analytics Beacon\",")
-	fmt.Println("        \"url\": \"https://analytics.example.com/pixel\",")
-	fmt.Println("        \"method\": \"GET\",")
-	fmt.Println("        \"enabled\": true,")
-	fmt.Println("        \"category\": \"analytics\",")
-	fmt.Println("        \"parameters\": {")
-	fmt.Println("          \"user_id\": \"${USER_ID}\",")
-	fmt.Println("          \"site_id\": \"${SITE_ID}\",")
-	fmt.Println("          \"user_agent\": \"${USER_AGENT}\",")
-	fmt.Println("          \"client_ip\": \"${CLIENT_IP}\"")
-	fmt.Println("        }")
-	fmt.Println("      }")
-	fmt.Println("    ],")
-	fmt.Println("    \"settings\": {")
-	fmt.Println("      \"defaultTimeout\": 5000,")
-	fmt.Println("      \"fireAndForget\": true,")
-	fmt.Println("      \"maxWait\": 0,")
-	fmt.Println("      \"enableLogging\": true")
-	fmt.Println("    },")
-	fmt.Println("    \"macros\": {")
-	fmt.Println("      \"USER_ID\": \"12345\",")
-	fmt.Println("      \"SITE_ID\": \"example.com\"")
-	fmt.Println("    }")
-	fmt.Println("  }")
+	fmt.Println("Features:")
+	fmt.Println("  ✅ Converts 'dir' type pixels to ESI includes")
+	fmt.Println("  ✅ Filters 'frm' and 'script' pixels for browser execution")
+	fmt.Println("  ✅ Supports advanced macro substitution")
+	fmt.Println("  ✅ Generates fingerprint IDs (suu)")
+	fmt.Println("  ✅ Handles cookie hashing (hpr/hpo)")
+	fmt.Println("  ✅ URL decoding support")
+	fmt.Println("  ✅ Fire-and-forget execution (MAXWAIT=0)")
 }
